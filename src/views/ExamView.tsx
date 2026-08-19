@@ -14,32 +14,57 @@ export const ExamView: React.FC<ExamViewProps> = ({
   onNavigate,
   onFinishExam,
 }) => {
+  const QUESTION_TIME_LIMIT = 60; // 60 seconds (1 minute) per question
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<(number | null)[]>(
     Array(questions.length).fill(null)
   );
-  const [timerSeconds, setTimerSeconds] = useState(165); // Default 02:45
+  const [secondsLeft, setSecondsLeft] = useState(QUESTION_TIME_LIMIT);
   const [isFocusMode, setIsFocusMode] = useState(true);
 
-  // Timer interval
+  // Reset timer on question change
   useEffect(() => {
+    setSecondsLeft(QUESTION_TIME_LIMIT);
+  }, [currentIndex]);
+
+  const currentQuestion = questions[currentIndex] || questions[0];
+  const progressPercentage = Math.round(((currentIndex + 1) / questions.length) * 100);
+  const selectedAnswer = selectedAnswers[currentIndex];
+  const hasAnswered = selectedAnswer !== null;
+  const isTimedOut = selectedAnswer === -1;
+  const isSelectedCorrect = selectedAnswer === currentQuestion.correctIndex;
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (hasAnswered) return; // Answer locked, freeze timer
+
     const interval = setInterval(() => {
-      setTimerSeconds((prev) => prev + 1);
+      setSecondsLeft((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          // Time expired! Mark as timed-out (-1) to reveal answer and allow proceeding
+          setSelectedAnswers((currentAnswers) => {
+            const updated = [...currentAnswers];
+            if (updated[currentIndex] === null) {
+              updated[currentIndex] = -1; // -1 represents timed-out / unanswered
+            }
+            return updated;
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
     }, 1000);
+
     return () => clearInterval(interval);
-  }, []);
+  }, [currentIndex, hasAnswered]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
-
-  const currentQuestion = questions[currentIndex] || questions[0];
-  const progressPercentage = Math.round(((currentIndex + 1) / questions.length) * 100);
-  const selectedAnswer = selectedAnswers[currentIndex];
-  const hasAnswered = selectedAnswer !== null;
-  const isSelectedCorrect = selectedAnswer === currentQuestion.correctIndex;
 
   const handleSelectOption = (optionIndex: number) => {
     if (hasAnswered) return; // Lock answer once selected for instant feedback
@@ -60,21 +85,19 @@ export const ExamView: React.FC<ExamViewProps> = ({
         }
       });
 
-      // Default demo score matching screenshot if demo
-      const finalCorrect = correctCount > 0 ? correctCount : 16;
       const total = questions.length > 0 ? questions.length : 20;
-      const percentage = Math.round((finalCorrect / total) * 100);
-      const incorrectCount = total - finalCorrect;
-      const finalGrade = Math.round((finalCorrect / total) * 20); // 16 / 20 valores
+      const percentage = Math.round((correctCount / total) * 100);
+      const incorrectCount = total - correctCount;
+      const finalGrade = Math.round((correctCount / total) * 20); // 0-20 scale
 
       onFinishExam({
-        score: finalCorrect,
+        score: correctCount,
         total: total,
         percentage: percentage,
-        correctCount: finalCorrect,
+        correctCount: correctCount,
         incorrectCount: incorrectCount,
         finalGrade: finalGrade,
-        studyTip: `Revise as questões de ${currentQuestion.category || 'Legislação'}. Foi onde você teve mais dificuldades hoje. Mantenha a constância!`,
+        studyTip: `Revise as questões de ${currentQuestion.category || 'Conhecimentos Gerais'}. Mantenha a constância para garantir a sua aprovação!`,
         categoryName: currentQuestion.category,
         testName: categoryTitle,
         date: new Date().toLocaleDateString('pt-AO'),
@@ -83,6 +106,13 @@ export const ExamView: React.FC<ExamViewProps> = ({
   };
 
   const handleSkip = () => {
+    // If skipped, mark current question as skipped (-1) and advance
+    if (selectedAnswers[currentIndex] === null) {
+      const updated = [...selectedAnswers];
+      updated[currentIndex] = -1;
+      setSelectedAnswers(updated);
+    }
+
     if (currentIndex < questions.length - 1) {
       setCurrentIndex((prev) => prev + 1);
     } else {
@@ -124,33 +154,68 @@ export const ExamView: React.FC<ExamViewProps> = ({
       <main className="flex-grow pt-24 pb-32 px-4 md:px-6">
         <div className="max-w-3xl mx-auto">
           {/* Progress Header */}
-          <div className="mb-8 px-2">
-            <div className="flex justify-between items-end mb-3">
+          <div className="mb-6 px-2">
+            <div className="flex justify-between items-center mb-3">
               <span className="text-sm font-bold text-blue-700 uppercase tracking-wider">
                 QUESTÃO {currentIndex + 1} DE {questions.length}
               </span>
-              <span className="text-xs font-semibold text-slate-500">
-                {progressPercentage}% concluído
-              </span>
+
+              {/* 1 Minute Countdown Timer Badge */}
+              <div
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full font-bold text-xs transition-all shadow-xs ${
+                  secondsLeft > 20
+                    ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                    : secondsLeft > 10
+                    ? 'bg-amber-100 text-amber-800 border border-amber-300 animate-pulse'
+                    : secondsLeft > 0
+                    ? 'bg-rose-100 text-rose-700 border border-rose-300 animate-bounce font-black'
+                    : 'bg-rose-600 text-white font-black'
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm">
+                  {secondsLeft === 0 ? 'alarm_off' : 'timer'}
+                </span>
+                <span>
+                  {secondsLeft > 0
+                    ? `${secondsLeft}s restantes`
+                    : 'Tempo Esgotado!'}
+                </span>
+              </div>
             </div>
-            <div className="h-2.5 w-full bg-slate-200/60 rounded-full overflow-hidden">
+
+            <div className="h-2.5 w-full bg-slate-200/60 rounded-full overflow-hidden flex">
               <div
                 className="h-full bg-blue-600 rounded-full transition-all duration-300"
                 style={{ width: `${progressPercentage}%` }}
               />
+            </div>
+            <div className="flex justify-between text-[11px] text-slate-500 font-semibold mt-1 px-1">
+              <span>Progresso geral: {progressPercentage}%</span>
+              <span>Limite por questão: 1 minuto (60 seg)</span>
             </div>
           </div>
 
           {/* Question Card */}
           <div className="bg-white rounded-3xl p-6 md:p-10 shadow-[0_4px_32px_rgba(0,0,0,0.03)] border border-slate-200/60">
             {/* Category Badges */}
-            <div className="flex flex-wrap items-center gap-3 mb-6">
-              <span className="px-3.5 py-1 bg-blue-100/80 text-blue-900 text-xs font-extrabold rounded-full uppercase tracking-tight">
-                {currentQuestion.category}
-              </span>
-              <span className="text-xs text-slate-500 font-medium">
-                Banca: {currentQuestion.banca}
-              </span>
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+              <div className="flex items-center gap-3">
+                <span className="px-3.5 py-1 bg-blue-100/80 text-blue-900 text-xs font-extrabold rounded-full uppercase tracking-tight">
+                  {currentQuestion.category}
+                </span>
+                <span className="text-xs text-slate-500 font-medium">
+                  Banca: {currentQuestion.banca}
+                </span>
+              </div>
+
+              {/* Mini Countdown Display */}
+              {!hasAnswered && (
+                <span className={`text-xs font-bold font-mono px-2 py-0.5 rounded-md ${
+                  secondsLeft <= 10 ? 'text-rose-600 bg-rose-50 animate-pulse' : 'text-slate-500 bg-slate-100'
+                }`}>
+                  00:{secondsLeft.toString().padStart(2, '0')}
+                </span>
+              )}
             </div>
 
             {/* Question Enunciado */}
@@ -176,13 +241,21 @@ export const ExamView: React.FC<ExamViewProps> = ({
                     containerStyle = 'bg-emerald-500 border-emerald-600 text-white shadow-md ring-2 ring-emerald-500/30 cursor-default';
                     badgeStyle = 'bg-white text-emerald-800 font-black';
                     textStyle = 'text-white font-bold';
-                    statusIcon = <span className="material-symbols-outlined text-white font-bold ml-auto text-2xl">check_circle</span>;
+                    statusIcon = (
+                      <span className="material-symbols-outlined text-white font-bold ml-auto text-2xl">
+                        check_circle
+                      </span>
+                    );
                   } else if (isSelectedOption && !isCorrectOption) {
                     // Selected Wrong Option -> RED
                     containerStyle = 'bg-red-500 border-red-600 text-white shadow-md ring-2 ring-red-500/30 cursor-default';
                     badgeStyle = 'bg-white text-red-800 font-black';
                     textStyle = 'text-white font-bold';
-                    statusIcon = <span className="material-symbols-outlined text-white font-bold ml-auto text-2xl">cancel</span>;
+                    statusIcon = (
+                      <span className="material-symbols-outlined text-white font-bold ml-auto text-2xl">
+                        cancel
+                      </span>
+                    );
                   } else {
                     // Other options when answered
                     containerStyle = 'bg-slate-100/70 border-slate-200 text-slate-400 opacity-50 cursor-not-allowed';
@@ -212,16 +285,28 @@ export const ExamView: React.FC<ExamViewProps> = ({
               })}
             </div>
 
-            {/* Explanation card after answered */}
+            {/* Explanation card after answered / timed out */}
             {hasAnswered && (
-              <div className={`mt-6 p-5 rounded-2xl border transition-all ${
-                isSelectedCorrect
-                  ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
-                  : 'bg-amber-50/90 border-amber-200 text-amber-950'
-              }`}>
-                <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider mb-2 text-slate-900">
-                  <span className="material-symbols-outlined text-sm text-blue-600">lightbulb</span>
-                  <span>{isSelectedCorrect ? 'Resposta Correta!' : 'Resposta Incorreta! Gabarito Comentado:'}</span>
+              <div
+                className={`mt-6 p-5 rounded-2xl border transition-all ${
+                  isTimedOut
+                    ? 'bg-amber-50 border-amber-300 text-amber-950'
+                    : isSelectedCorrect
+                    ? 'bg-emerald-50/90 border-emerald-200 text-emerald-950'
+                    : 'bg-red-50/90 border-red-200 text-red-950'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-black text-xs uppercase tracking-wider mb-2">
+                  <span className="material-symbols-outlined text-sm">
+                    {isTimedOut ? 'alarm_off' : isSelectedCorrect ? 'check_circle' : 'lightbulb'}
+                  </span>
+                  <span>
+                    {isTimedOut
+                      ? `⏰ Tempo Esgotado (1 min)! A resposta correta era a opção ${String.fromCharCode(65 + currentQuestion.correctIndex)}:`
+                      : isSelectedCorrect
+                      ? 'Resposta Correta!'
+                      : 'Resposta Incorreta! Gabarito Comentado:'}
+                  </span>
                 </div>
                 <p className="text-xs md:text-sm font-medium leading-relaxed">
                   {currentQuestion.explanation || 'Gabarito verificado pela comissão do concurso.'}
@@ -231,11 +316,11 @@ export const ExamView: React.FC<ExamViewProps> = ({
           </div>
 
           {/* Focus Mode & Timer Footer info */}
-          <div className="mt-10 flex justify-center items-center gap-8 text-slate-500">
+          <div className="mt-10 flex flex-wrap justify-center items-center gap-6 md:gap-8 text-slate-500">
             <div className="flex items-center gap-2">
               <span className="material-symbols-outlined text-sm">timer</span>
               <span className="text-xs font-bold uppercase tracking-widest">
-                TEMPO DECORRIDO: {formatTimer(timerSeconds)}
+                TEMPO DA QUESTÃO: {secondsLeft > 0 ? `${secondsLeft}s` : 'ESGOTADO'}
               </span>
             </div>
             <button

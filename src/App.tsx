@@ -39,11 +39,50 @@ import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
 
 export function App() {
-  const [currentScreen, setCurrentScreen] = useState<Screen>('home');
-  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
-    const saved = localStorage.getItem('ngola_current_user');
-    return saved ? JSON.parse(saved) : INITIAL_USER_PROFILE;
+  // Check if a registered user session exists
+  const getStoredUser = (): UserProfile | null => {
+    try {
+      const saved = localStorage.getItem('ngola_current_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.phone || parsed.email)) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn('Error reading stored user profile:', e);
+    }
+    return null;
+  };
+
+  const storedUser = getStoredUser();
+
+  // First-time visit: opens login page directly. If logged in previously, opens home.
+  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
+    return storedUser ? 'home' : 'login';
   });
+
+  const [userProfile, setUserProfile] = useState<UserProfile>(() => {
+    return (
+      storedUser || {
+        name: '',
+        phone: '',
+        email: '',
+        isActivated: false,
+        dailyGoalQuestions: 30,
+        dailyCompletedQuestions: 0,
+        totalTestsTaken: 0,
+        averageScore: 0,
+      }
+    );
+  });
+
+  const isUserAuthenticated = Boolean(
+    userProfile &&
+      (userProfile.phone?.trim() || userProfile.email?.trim()) &&
+      localStorage.getItem('ngola_current_user')
+  );
+
   const [testModules, setTestModules] = useState<TestModule[]>(TEST_MODULES);
   const [questionsPool, setQuestionsPool] = useState<Question[]>(MOCK_QUESTIONS);
   const [categories, setCategories] = useState<Category[]>(HOME_CATEGORIES);
@@ -100,6 +139,13 @@ export function App() {
 
   // Navigation handlers
   const handleNavigate = (screen: Screen) => {
+    // If not authenticated and trying to access any screen other than login or admin, force login
+    if (!isUserAuthenticated && screen !== 'login' && screen !== 'admin') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setCurrentScreen('login');
+      return;
+    }
+
     if (screen === 'admin' && !isAdminAuthenticated) {
       setShowAdminModal(true);
       return;
@@ -438,13 +484,19 @@ export function App() {
   };
 
   const handleLogout = () => {
-    const resetUser = {
-      ...INITIAL_USER_PROFILE,
-      isActivated: false,
-    };
-    setUserProfile(resetUser);
     localStorage.removeItem('ngola_current_user');
-    handleNavigate('login');
+    setUserProfile({
+      name: '',
+      phone: '',
+      email: '',
+      isActivated: false,
+      dailyGoalQuestions: 30,
+      dailyCompletedQuestions: 0,
+      totalTestsTaken: 0,
+      averageScore: 0,
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setCurrentScreen('login');
   };
 
 
@@ -543,9 +595,12 @@ export function App() {
         {currentScreen === 'login' && (
           <LoginView
             onNavigate={handleNavigate}
+            canGoBack={isUserAuthenticated}
             onLoginSuccess={(userData) => {
               setUserProfile(userData);
               localStorage.setItem('ngola_current_user', JSON.stringify(userData));
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              setCurrentScreen('home');
             }}
           />
         )}
@@ -599,7 +654,7 @@ export function App() {
       />
 
       {/* Bottom Navigation Bar */}
-      {currentScreen !== 'login' && (
+      {currentScreen !== 'login' && isUserAuthenticated && (
         <BottomNav currentScreen={currentScreen} onNavigate={handleNavigate} />
       )}
     </div>

@@ -7,9 +7,10 @@ import { loginOrRegisterUser } from '../services/supabaseService';
 interface LoginViewProps {
   onNavigate: (screen: Screen) => void;
   onLoginSuccess: (user: UserProfile) => void;
+  canGoBack?: boolean;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ onNavigate, onLoginSuccess }) => {
+export const LoginView: React.FC<LoginViewProps> = ({ onNavigate, onLoginSuccess, canGoBack = false }) => {
   const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -144,16 +145,18 @@ export const LoginView: React.FC<LoginViewProps> = ({ onNavigate, onLoginSuccess
 
   return (
     <div className="min-h-screen bg-[#f5f7f8] flex flex-col justify-center items-center px-4 py-10 relative overflow-hidden">
-      {/* Back Button */}
-      <div className="fixed top-0 left-0 p-6 z-20">
-        <button
-          onClick={() => onNavigate('home')}
-          className="p-2.5 rounded-full text-slate-600 hover:bg-slate-200/60 transition-colors cursor-pointer flex items-center justify-center bg-white shadow-sm border border-slate-200/60"
-          aria-label="Voltar"
-        >
-          <span className="material-symbols-outlined text-2xl">arrow_back</span>
-        </button>
-      </div>
+      {/* Back Button (only shown if user is already authenticated and navigating) */}
+      {canGoBack && (
+        <div className="fixed top-0 left-0 p-6 z-20">
+          <button
+            onClick={() => onNavigate('home')}
+            className="p-2.5 rounded-full text-slate-600 hover:bg-slate-200/60 transition-colors cursor-pointer flex items-center justify-center bg-white shadow-sm border border-slate-200/60"
+            aria-label="Voltar"
+          >
+            <span className="material-symbols-outlined text-2xl">arrow_back</span>
+          </button>
+        </div>
+      )}
 
       {/* Main Content Box */}
       <main className="w-full max-w-md space-y-6 z-10">
