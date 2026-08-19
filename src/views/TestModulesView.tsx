@@ -13,14 +13,14 @@ interface TestModulesViewProps {
 }
 
 export const TestModulesView: React.FC<TestModulesViewProps> = ({
-  modules = TEST_MODULES,
+  modules = [],
   selectedCategory,
   selectedSpecialization,
   userProfile,
   onNavigate,
   onStartExamModule,
 }) => {
-  const allModules = modules && modules.length > 0 ? modules : TEST_MODULES;
+  const allModules = modules;
 
   const isCategoryFree = () => {
     const tag = (selectedCategory?.statusTag || '').toUpperCase().trim();

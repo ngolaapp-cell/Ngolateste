@@ -15,10 +15,10 @@ interface CategoriesViewProps {
 }
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
-  categories = HOME_CATEGORIES,
+  categories = [],
   selectedCategory,
   selectedSpecialization,
-  specializations = SPECIALIZATIONS,
+  specializations = [],
   userProfile,
   onNavigate,
   onSelectCategory,
@@ -28,8 +28,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     selectedCategory ? selectedCategory.id : 'all'
   );
 
-  const displayCategories = categories && categories.length > 0 ? categories : HOME_CATEGORIES;
-  const allSpecs = specializations && specializations.length > 0 ? specializations : SPECIALIZATIONS;
+  const displayCategories = categories;
+  const allSpecs = specializations;
 
   const isSpecFree = (spec: Specialization) => {
     const parent = displayCategories.find(

@@ -7,19 +7,21 @@ import { CategoryCarousel } from '../components/CategoryCarousel';
 interface HomeViewProps {
   categories?: Category[];
   userProfile?: UserProfile;
+  isLoading?: boolean;
   onNavigate: (screen: Screen) => void;
   onSelectCategory?: (category: Category) => void;
   onStartExam: (categoryId?: string) => void;
 }
 
 export const HomeView: React.FC<HomeViewProps> = ({
-  categories,
+  categories = [],
   userProfile,
+  isLoading = false,
   onNavigate,
   onSelectCategory,
   onStartExam,
 }) => {
-  const displayCategories = categories && categories.length > 0 ? categories : HOME_CATEGORIES;
+  const displayCategories = categories;
   const isActivated = userProfile?.isActivated;
 
   const isCategoryFree = (catIdOrName?: string) => {
@@ -48,14 +50,18 @@ export const HomeView: React.FC<HomeViewProps> = ({
 
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-7xl mx-auto">
-      {/* Dynamic Featured / New Categories Carousel (Replaces the static hero and banner) */}
-      <CategoryCarousel
-        categories={displayCategories}
-        isActivated={isActivated}
-        onNavigate={onNavigate}
-        onSelectCategory={onSelectCategory}
-        onStartExam={onStartExam}
-      />
+      {/* Dynamic Featured / New Categories Carousel */}
+      {displayCategories.length > 0 ? (
+        <CategoryCarousel
+          categories={displayCategories}
+          isActivated={isActivated}
+          onNavigate={onNavigate}
+          onSelectCategory={onSelectCategory}
+          onStartExam={onStartExam}
+        />
+      ) : isLoading ? (
+        <div className="w-full h-64 md:h-72 rounded-3xl bg-slate-200/80 animate-pulse mb-8" />
+      ) : null}
 
       {/* Categories Grid */}
       <section className="mb-10">
@@ -70,59 +76,75 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {displayCategories.map((cat) => (
-            <div
-              key={cat.id}
-              onClick={() => {
-                if (onSelectCategory) {
-                  onSelectCategory(cat);
-                } else {
-                  onNavigate('categories');
-                }
-              }}
-              className="bg-white rounded-3xl overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col border border-slate-200/60 cursor-pointer"
-            >
-              <div className="h-32 w-full relative overflow-hidden">
-                <img
-                  src={cat.image}
-                  alt={cat.name}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                <div className="absolute bottom-3 left-4 text-white flex items-center gap-2">
-                  <span className="material-symbols-outlined text-2xl">{cat.icon}</span>
-                  {cat.statusTag && (
-                    <span
-                      className={`${
-                        (cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS'
-                          ? 'bg-emerald-600 border border-emerald-300 text-white'
-                          : cat.statusTag === 'LIBERADO'
-                          ? 'bg-emerald-500 text-white'
-                          : 'bg-blue-600 text-white'
-                      } backdrop-blur-sm text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1`}
-                    >
-                      {((cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS') && (
-                        <span className="material-symbols-outlined text-xs">savings</span>
-                      )}
-                      <span>{cat.statusTag}</span>
-                    </span>
-                  )}
+        {displayCategories.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {displayCategories.map((cat) => (
+              <div
+                key={cat.id}
+                onClick={() => {
+                  if (onSelectCategory) {
+                    onSelectCategory(cat);
+                  } else {
+                    onNavigate('categories');
+                  }
+                }}
+                className="bg-white rounded-3xl overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col border border-slate-200/60 cursor-pointer"
+              >
+                <div className="h-32 w-full relative overflow-hidden">
+                  <img
+                    src={cat.image}
+                    alt={cat.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                  <div className="absolute bottom-3 left-4 text-white flex items-center gap-2">
+                    <span className="material-symbols-outlined text-2xl">{cat.icon}</span>
+                    {cat.statusTag && (
+                      <span
+                        className={`${
+                          (cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS'
+                            ? 'bg-emerald-600 border border-emerald-300 text-white'
+                            : cat.statusTag === 'LIBERADO'
+                            ? 'bg-emerald-500 text-white'
+                            : 'bg-blue-600 text-white'
+                        } backdrop-blur-sm text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1`}
+                      >
+                        {((cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS') && (
+                          <span className="material-symbols-outlined text-xs">savings</span>
+                        )}
+                        <span>{cat.statusTag}</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="p-5 flex flex-col flex-grow">
+                  <h3 className="text-lg font-bold text-slate-900 mb-1">{cat.name}</h3>
+                  <p className="text-slate-500 text-xs leading-relaxed mb-4 line-clamp-2">
+                    {cat.description}
+                  </p>
+                  <div className="mt-auto flex items-center text-blue-600 font-bold text-xs group-hover:gap-1.5 transition-all">
+                    <span>Ver Especializações</span>
+                    <span className="material-symbols-outlined text-xs">arrow_forward</span>
+                  </div>
                 </div>
               </div>
-              <div className="p-5 flex flex-col flex-grow">
-                <h3 className="text-lg font-bold text-slate-900 mb-1">{cat.name}</h3>
-                <p className="text-slate-500 text-xs leading-relaxed mb-4 line-clamp-2">
-                  {cat.description}
-                </p>
-                <div className="mt-auto flex items-center text-blue-600 font-bold text-xs group-hover:gap-1.5 transition-all">
-                  <span>Ver Especializações</span>
-                  <span className="material-symbols-outlined text-xs">arrow_forward</span>
-                </div>
+            ))}
+          </div>
+        ) : isLoading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[1, 2, 3, 4].map((n) => (
+              <div key={n} className="bg-white rounded-3xl h-56 border border-slate-200/60 animate-pulse p-4 flex flex-col justify-between">
+                <div className="h-28 bg-slate-200 rounded-2xl w-full" />
+                <div className="h-4 bg-slate-200 rounded w-3/4" />
+                <div className="h-3 bg-slate-200 rounded w-1/2" />
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white rounded-3xl p-8 text-center border border-slate-200">
+            <p className="text-slate-500 text-sm">Nenhuma categoria encontrada no banco de dados.</p>
+          </div>
+        )}
       </section>
 
       {/* Progress Card Section */}

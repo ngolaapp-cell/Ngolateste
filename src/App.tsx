@@ -85,10 +85,37 @@ export function App() {
       localStorage.getItem('ngola_current_user')
   );
 
-  const [testModules, setTestModules] = useState<TestModule[]>(TEST_MODULES);
-  const [questionsPool, setQuestionsPool] = useState<Question[]>(MOCK_QUESTIONS);
-  const [categories, setCategories] = useState<Category[]>(HOME_CATEGORIES);
-  const [specializations, setSpecializations] = useState<Specialization[]>(SPECIALIZATIONS);
+  const getCachedData = <T,>(key: string, fallback: T): T => {
+    try {
+      const saved = localStorage.getItem(key);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as unknown as T;
+        }
+      }
+    } catch (e) {
+      console.warn(`Error reading cached ${key}:`, e);
+    }
+    return fallback;
+  };
+
+  const [testModules, setTestModules] = useState<TestModule[]>(() =>
+    getCachedData('ngola_test_modules', TEST_MODULES)
+  );
+  const [questionsPool, setQuestionsPool] = useState<Question[]>(() =>
+    getCachedData('ngola_questions_pool', MOCK_QUESTIONS)
+  );
+  const [categories, setCategories] = useState<Category[]>(() =>
+    getCachedData('ngola_categories', HOME_CATEGORIES)
+  );
+  const [specializations, setSpecializations] = useState<Specialization[]>(() =>
+    getCachedData('ngola_specializations', SPECIALIZATIONS)
+  );
+  const [isDataLoading, setIsDataLoading] = useState<boolean>(() => {
+    // If we have cached categories, we don't need a full blocking loader
+    return !localStorage.getItem('ngola_categories');
+  });
   const [selectedCategory, setSelectedCategory] = useState<Category | null>(null);
   const [selectedSpecialization, setSelectedSpecialization] = useState<Specialization | null>(null);
 
@@ -103,10 +130,10 @@ export function App() {
           fetchSpecializations(),
           fetchAdminPassword(),
         ]);
-        if (fetchedMods) setTestModules(fetchedMods);
-        if (fetchedQuestions) setQuestionsPool(fetchedQuestions);
-        if (fetchedCats) setCategories(fetchedCats);
-        if (fetchedSpecs) setSpecializations(fetchedSpecs);
+        if (fetchedMods && fetchedMods.length > 0) setTestModules(fetchedMods);
+        if (fetchedQuestions && fetchedQuestions.length > 0) setQuestionsPool(fetchedQuestions);
+        if (fetchedCats && fetchedCats.length > 0) setCategories(fetchedCats);
+        if (fetchedSpecs && fetchedSpecs.length > 0) setSpecializations(fetchedSpecs);
         if (fetchedPass) {
           setAdminPassword(fetchedPass);
           localStorage.setItem('ngola_admin_password', fetchedPass);
@@ -124,6 +151,8 @@ export function App() {
         }
       } catch (err) {
         console.warn('Error loading Supabase initial data:', err);
+      } finally {
+        setIsDataLoading(false);
       }
     }
     loadData();
@@ -528,6 +557,7 @@ export function App() {
           <HomeView
             categories={categories}
             userProfile={userProfile}
+            isLoading={isDataLoading}
             onNavigate={handleNavigate}
             onSelectCategory={handleCategoryClick}
             onStartExam={handleStartExam}
