@@ -1196,6 +1196,79 @@ export async function toggleUserBlockStatus(
 }
 
 /**
+ * Get configured admin password from Supabase or localStorage
+ */
+export async function fetchAdminPassword(): Promise<string> {
+  const client = getSupabaseClient();
+  if (isSupabaseConfigured() && client) {
+    try {
+      const { data } = await client
+        .from('configuracoes')
+        .select('valor')
+        .eq('chave', 'admin_password')
+        .maybeSingle();
+
+      if (data?.valor && data.valor.trim()) {
+        localStorage.setItem('ngola_admin_password', data.valor.trim());
+        return data.valor.trim();
+      }
+    } catch (e) {
+      console.warn('Could not fetch admin password from Supabase configuracoes:', e);
+    }
+  }
+
+  const localPass = localStorage.getItem('ngola_admin_password');
+  if (localPass && localPass.trim()) return localPass.trim();
+
+  return 'ngola2025';
+}
+
+/**
+ * Save configured admin password to Supabase and localStorage
+ */
+export async function saveAdminPassword(password: string): Promise<{ success: boolean; message: string }> {
+  const cleanPass = password.trim();
+  if (!cleanPass) {
+    return { success: false, message: 'Senha inválida' };
+  }
+
+  localStorage.setItem('ngola_admin_password', cleanPass);
+
+  const client = getSupabaseClient();
+  if (isSupabaseConfigured() && client) {
+    try {
+      await client
+        .from('configuracoes')
+        .upsert(
+          {
+            chave: 'admin_password',
+            valor: cleanPass,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: 'chave' }
+        );
+    } catch (e) {
+      console.warn('Could not save admin password to Supabase configuracoes:', e);
+    }
+  }
+
+  try {
+    await fetch('/api/admin/save-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: cleanPass }),
+    });
+  } catch (e) {
+    // Ignore server error if on static hosting
+  }
+
+  return {
+    success: true,
+    message: 'Senha do Administrador atualizada e sincronizada com sucesso!',
+  };
+}
+
+/**
  * Get configured admin password recovery email
  */
 export async function fetchAdminRecoveryEmail(): Promise<string> {

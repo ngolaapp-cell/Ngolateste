@@ -13,6 +13,8 @@ import {
   fetchCategories,
   fetchSpecializations,
   fetchUserProfile,
+  fetchAdminPassword,
+  saveAdminPassword,
   saveQuestion,
   deleteQuestion,
   saveTestModule,
@@ -94,16 +96,21 @@ export function App() {
   useEffect(() => {
     async function loadData() {
       try {
-        const [fetchedMods, fetchedQuestions, fetchedCats, fetchedSpecs] = await Promise.all([
+        const [fetchedMods, fetchedQuestions, fetchedCats, fetchedSpecs, fetchedPass] = await Promise.all([
           fetchTestModules(),
           fetchQuestions(),
           fetchCategories(),
           fetchSpecializations(),
+          fetchAdminPassword(),
         ]);
         if (fetchedMods) setTestModules(fetchedMods);
         if (fetchedQuestions) setQuestionsPool(fetchedQuestions);
         if (fetchedCats) setCategories(fetchedCats);
         if (fetchedSpecs) setSpecializations(fetchedSpecs);
+        if (fetchedPass) {
+          setAdminPassword(fetchedPass);
+          localStorage.setItem('ngola_admin_password', fetchedPass);
+        }
 
         const currentSaved = localStorage.getItem('ngola_current_user');
         if (currentSaved) {
@@ -215,6 +222,7 @@ export function App() {
   const handleUpdateAdminPassword = (newPass: string) => {
     setAdminPassword(newPass);
     localStorage.setItem('ngola_admin_password', newPass);
+    saveAdminPassword(newPass);
   };
 
   const handleUpdateAdminRecoveryEmail = (newEmail: string) => {

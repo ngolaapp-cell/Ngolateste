@@ -13,11 +13,18 @@ export const TransparentLogo: React.FC<TransparentLogoProps> = ({
   className = '',
 }) => {
   const [processedSrc, setProcessedSrc] = useState<string | null>(null);
+  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
+    // If it's already an SVG, no need to process with canvas
+    if (src.endsWith('.svg') || src.startsWith('data:image/svg')) {
+      setProcessedSrc(src);
+      setHasError(false);
+      return;
+    }
+
     let isMounted = true;
     const img = new Image();
-    img.crossOrigin = 'anonymous';
 
     img.onload = () => {
       try {
@@ -41,13 +48,10 @@ export const TransparentLogo: React.FC<TransparentLogoProps> = ({
           const g = data[i + 1];
           const b = data[i + 2];
 
-          // Check if pixel is white or close to white/light grey
           const brightness = (r + g + b) / 3;
           if (r > 210 && g > 210 && b > 210) {
-            // Pure white or light background -> transparent
             data[i + 3] = 0;
           } else if (brightness > 180) {
-            // Anti-aliased edge smoothing
             const alpha = Math.max(0, Math.floor(255 - (brightness - 180) * 8));
             data[i + 3] = Math.min(data[i + 3], alpha);
           }
@@ -59,13 +63,15 @@ export const TransparentLogo: React.FC<TransparentLogoProps> = ({
           setProcessedSrc(dataUrl);
         }
       } catch {
-        // Fallback if canvas is tainted by CORS
         if (isMounted) setProcessedSrc(src);
       }
     };
 
     img.onerror = () => {
-      if (isMounted) setProcessedSrc(src);
+      if (isMounted) {
+        setHasError(true);
+        setProcessedSrc('/logo.svg');
+      }
     };
 
     img.src = src;
@@ -75,12 +81,28 @@ export const TransparentLogo: React.FC<TransparentLogoProps> = ({
     };
   }, [src]);
 
+  if (hasError) {
+    return (
+      <img
+        src="/logo.svg"
+        alt={alt}
+        className={className}
+        onError={() => setProcessedSrc(null)}
+      />
+    );
+  }
+
   return (
     <img
-      src={processedSrc || src}
+      src={processedSrc || src || '/logo.svg'}
       alt={alt}
-      className={`${className} ${!processedSrc ? 'mix-blend-multiply' : ''}`}
+      className={className}
+      onError={() => {
+        setHasError(true);
+        setProcessedSrc('/logo.svg');
+      }}
       referrerPolicy="no-referrer"
     />
   );
 };
+

@@ -4485,7 +4485,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     Senha Atual do ADM
                   </label>
                   <div className="bg-white p-3 rounded-xl border border-slate-200 text-slate-800 font-mono text-sm font-bold flex items-center justify-between shadow-2xs">
-                    <span>{adminPassword ? '••••••••' : 'ngola2025'}</span>
+                    <span>••••••••</span>
                     <span className="text-xs text-blue-600 font-sans font-semibold bg-blue-50 px-2 py-0.5 rounded-md border border-blue-100">Ativa</span>
                   </div>
                 </div>

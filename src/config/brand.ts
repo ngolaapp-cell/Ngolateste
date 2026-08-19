@@ -1,1 +1,5 @@
-export const OFFICIAL_LOGO_URL = 'https://scontent.flad8-2.fna.fbcdn.net/v/t39.30808-6/768537401_122134512147228714_4387607619184382192_n.png?stp=dst-png&cstp=mx517x483&ctp=s517x483&_nc_cat=109&ccb=1-7&_nc_sid=cc71e4&_nc_ohc=lp4iuUqkFogQ7kNvwEBKGww&_nc_oc=AdqEXgiP-gKAHtbYUJMSEUlRn_yA8kAJtkXJXPL_u094JOuNmjXlXw4s_r0PyVyiex8&_nc_zt=23&_nc_ht=scontent.flad8-2.fna&_nc_gid=FbUyIiezgYyWcO67kaw5EQ&_nc_ss=7b2a8&oh=00_AQG7XgOvJM82dFEepkPm8cH7q2RL5PP7kEXA7S0eJl3V3w&oe=6A81AD4E';
+export const OFFICIAL_LOGO_URL =
+  import.meta.env.VITE_APP_LOGO_URL ||
+  'https://tmvhypfpqocgksaxywuj.supabase.co/storage/v1/object/public/Logotipo/ngola%20teste%20logotipo.png';
+
+

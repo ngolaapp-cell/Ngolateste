@@ -3,6 +3,7 @@ import { OFFICIAL_LOGO_URL } from '../config/brand';
 import { TransparentLogo } from './TransparentLogo';
 import {
   fetchAdminRecoveryEmail,
+  fetchAdminPassword,
   sendAdminRecoveryOTP,
   validateAdminRecoveryOTP,
   resetAdminPasswordWithOTP,
@@ -26,6 +27,7 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
   const [inputPassword, setInputPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [activePassword, setActivePassword] = useState(adminPassword);
   
   // Recovery Mode states
   const [isRecoveryMode, setIsRecoveryMode] = useState(false);
@@ -52,6 +54,9 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      fetchAdminPassword().then((pass) => {
+        if (pass) setActivePassword(pass);
+      });
       fetchAdminRecoveryEmail().then((email) => {
         if (email) {
           setRecoveryEmail(email);
@@ -80,8 +85,8 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
       return;
     }
 
-    const effectivePassword = adminPassword || 'ngola2025';
-    if (inputPassword === effectivePassword || inputPassword === 'admin') {
+    const effectivePassword = activePassword || adminPassword || 'ngola2025';
+    if (inputPassword === effectivePassword) {
       setErrorMsg('');
       setInputPassword('');
       onSuccess();
@@ -235,7 +240,6 @@ export const AdminAuthModal: React.FC<AdminAuthModalProps> = ({
                 <span className="material-symbols-outlined text-sm">mark_email_read</span>
                 <span>Esqueceu a senha? Recuperar por e-mail</span>
               </button>
-              <span className="text-slate-400 text-[11px]">Padrão: ngola2025</span>
             </div>
 
             <div className="flex items-center gap-3 pt-3">
