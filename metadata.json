@@ -1,0 +1,6 @@
+{
+  "name": "NgolaTeste",
+  "description": "Aplicativo mobile para testes e simulados de concursos públicos em Angola com estatísticas e apoio de IA",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
