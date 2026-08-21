@@ -3,6 +3,7 @@ import { Screen, Category, UserProfile } from '../types';
 import { HOME_CATEGORIES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
 import { CategoryCarousel } from '../components/CategoryCarousel';
+import { checkIsCategoryFree, isFreeStatusTag } from '../utils/accessControl';
 
 interface HomeViewProps {
   categories?: Category[];
@@ -35,8 +36,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
         clean.includes(c.name.toLowerCase())
     );
     if (!cat) return false;
-    const tag = (cat.statusTag || '').toUpperCase().trim();
-    return tag === 'GRÁTIS' || tag === 'GRATIS' || tag === 'FREE';
+    return checkIsCategoryFree(cat, displayCategories);
   };
 
   const handleStartSimulado = (catOrSubject?: string) => {
@@ -102,14 +102,14 @@ export const HomeView: React.FC<HomeViewProps> = ({
                     {cat.statusTag && (
                       <span
                         className={`${
-                          (cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS'
+                          isFreeStatusTag(cat.statusTag)
                             ? 'bg-emerald-600 border border-emerald-300 text-white'
                             : cat.statusTag === 'LIBERADO'
                             ? 'bg-emerald-500 text-white'
                             : 'bg-blue-600 text-white'
                         } backdrop-blur-sm text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1`}
                       >
-                        {((cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS') && (
+                        {isFreeStatusTag(cat.statusTag) && (
                           <span className="material-symbols-outlined text-xs">savings</span>
                         )}
                         <span>{cat.statusTag}</span>

@@ -39,6 +39,7 @@ import { ActivationView } from './views/ActivationView';
 import { LoginView } from './views/LoginView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
+import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from './utils/accessControl';
 
 export function App() {
   // Check if a registered user session exists
@@ -208,44 +209,26 @@ export function App() {
         clean.includes(c.name.toLowerCase())
     );
     if (!cat) return false;
-    const tag = (cat.statusTag || '').toUpperCase().trim();
-    return tag === 'GRÁTIS' || tag === 'GRATIS' || tag === 'FREE';
+    return checkIsCategoryFree(cat, categories);
   };
 
   const handleSpecializationClick = (spec: Specialization) => {
     setSelectedSpecialization(spec);
 
-    // Find parent category to see if it's free
+    // Find parent category to sync selectedCategory
+    const normSpecCatId = (spec.categoryId || '').toLowerCase().trim();
+    const normSpecCatName = (spec.categoryName || '').toLowerCase().trim();
     const parentCategory = categories.find(
       (c) =>
-        (spec.categoryId && (c.id.toLowerCase() === spec.categoryId.toLowerCase() || c.name.toLowerCase() === spec.categoryId.toLowerCase())) ||
-        (spec.categoryName && (c.name.toLowerCase() === spec.categoryName.toLowerCase() || c.id.toLowerCase() === spec.categoryName.toLowerCase())) ||
+        (normSpecCatId && (c.id.toLowerCase().trim() === normSpecCatId || c.name.toLowerCase().trim() === normSpecCatId)) ||
+        (normSpecCatName && (c.name.toLowerCase().trim() === normSpecCatName || c.id.toLowerCase().trim() === normSpecCatName)) ||
         (selectedCategory && selectedCategory.id === c.id)
     );
-    const parentIsFree = parentCategory && (
-      (parentCategory.statusTag || '').toUpperCase() === 'GRÁTIS' ||
-      (parentCategory.statusTag || '').toUpperCase() === 'GRATIS' ||
-      (parentCategory.statusTag || '').toUpperCase() === 'FREE'
-    );
-
-    // Check if this specific specialization is unlocked
-    const activatedList = userProfile.activatedSpecializations || [];
-    const isUnlocked =
-      parentIsFree ||
-      activatedList.includes(spec.id) ||
-      activatedList.includes(spec.title) ||
-      activatedList.some(
-        (s) =>
-          s.toLowerCase().trim() === spec.id.toLowerCase().trim() ||
-          s.toLowerCase().trim() === spec.title.toLowerCase().trim()
-      );
-
-    if (isUnlocked) {
-      handleNavigate('tests');
-    } else {
-      // Per business rule: each specialization requires its own activation code
-      handleNavigate('activation');
+    if (parentCategory) {
+      setSelectedCategory(parentCategory);
     }
+
+    handleNavigate('tests');
   };
 
   const handleUpdateAdminPassword = (newPass: string) => {
@@ -580,6 +563,7 @@ export function App() {
         {currentScreen === 'tests' && (
           <TestModulesView
             modules={testModules}
+            categories={categories}
             selectedCategory={selectedCategory}
             selectedSpecialization={selectedSpecialization}
             userProfile={userProfile}
@@ -599,6 +583,7 @@ export function App() {
 
         {currentScreen === 'result' && (
           <ResultView
+            userProfile={userProfile}
             result={
               lastExamResult || {
                 score: 16,

@@ -2,9 +2,11 @@ import React from 'react';
 import { Screen, TestModule, Specialization, Category, UserProfile } from '../types';
 import { TEST_MODULES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
+import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from '../utils/accessControl';
 
 interface TestModulesViewProps {
   modules?: TestModule[];
+  categories?: Category[];
   selectedCategory?: Category | null;
   selectedSpecialization?: Specialization | null;
   userProfile?: UserProfile;
@@ -14,6 +16,7 @@ interface TestModulesViewProps {
 
 export const TestModulesView: React.FC<TestModulesViewProps> = ({
   modules = [],
+  categories = [],
   selectedCategory,
   selectedSpecialization,
   userProfile,
@@ -22,31 +25,15 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
 }) => {
   const allModules = modules;
 
-  const isCategoryFree = () => {
-    const tag = (selectedCategory?.statusTag || '').toUpperCase().trim();
-    if (tag === 'GRÁTIS' || tag === 'GRATIS' || tag === 'FREE') return true;
-    return false;
-  };
+  // Check if current category or specialization is free
+  const isFree = selectedSpecialization
+    ? checkIsSpecializationFree(selectedSpecialization, categories, selectedCategory)
+    : checkIsCategoryFree(selectedCategory, categories);
 
-  const isFree = isCategoryFree();
-
-  const isSpecUnlocked = () => {
-    if (isFree) return true;
-    if (!userProfile) return false;
-    if (!selectedSpecialization) return false;
-    const activated = userProfile.activatedSpecializations || [];
-    return (
-      activated.includes(selectedSpecialization.id) ||
-      activated.includes(selectedSpecialization.title) ||
-      activated.some(
-        (s) =>
-          s.toLowerCase().trim() === selectedSpecialization.id.toLowerCase().trim() ||
-          s.toLowerCase().trim() === selectedSpecialization.title.toLowerCase().trim()
-      )
-    );
-  };
-
-  const unlocked = isSpecUnlocked();
+  // Check if unlocked (either free OR activated)
+  const unlocked = selectedSpecialization
+    ? checkIsSpecializationUnlocked(selectedSpecialization, userProfile, categories, selectedCategory)
+    : isFree || (userProfile?.isActivated ?? false) || (userProfile?.activatedSpecializations?.length ?? 0) > 0;
 
   const handleModuleClick = (test: TestModule) => {
     if (!unlocked) {

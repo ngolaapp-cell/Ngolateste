@@ -1,5 +1,6 @@
-import React from 'react';
-import { Screen, UserProfile } from '../types';
+import React, { useState, useEffect } from 'react';
+import { Screen, UserProfile, AdminAnnouncement } from '../types';
+import { fetchAdminAnnouncements } from '../services/supabaseService';
 
 interface ProfileViewProps {
   userProfile: UserProfile;
@@ -12,6 +13,86 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onNavigate,
   onLogout,
 }) => {
+  const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
+  const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+  const [currentAnnIndex, setCurrentAnnIndex] = useState(0);
+
+  useEffect(() => {
+    fetchAdminAnnouncements().then((data) => {
+      if (data && data.length > 0) {
+        setAnnouncements(data);
+      }
+    });
+  }, []);
+
+  // Filter announcements addressed to this user
+  const userAnnouncements = announcements.filter((a) => {
+    if (!a.active) return false;
+    if (dismissedIds.includes(a.id)) return false;
+    if (a.targetType === 'all') return true;
+    if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
+      const uPhone = userProfile.phone.trim();
+      const uEmail = (userProfile.email || '').trim().toLowerCase();
+      return a.targetPhones.some(
+        (p) => p.trim() === uPhone || (uEmail && p.trim().toLowerCase() === uEmail)
+      );
+    }
+    return false;
+  });
+
+  const activeAnnouncement = userAnnouncements[currentAnnIndex] || userAnnouncements[0] || null;
+
+  const handleDismissAnnouncement = (id: string) => {
+    const updated = [...dismissedIds, id];
+    setDismissedIds(updated);
+    try {
+      localStorage.setItem(`ngola_dismissed_ann_${userProfile.phone}`, JSON.stringify(updated));
+    } catch (_) {}
+    if (currentAnnIndex > 0) {
+      setCurrentAnnIndex((prev) => prev - 1);
+    }
+  };
+
+  const handleActionClick = (url?: string) => {
+    if (!url) return;
+    const trimmed = url.trim();
+    const knownScreens: Screen[] = ['home', 'categories', 'tests', 'exam', 'result', 'activation', 'login', 'profile', 'admin'];
+    if (knownScreens.includes(trimmed as Screen)) {
+      onNavigate(trimmed as Screen);
+      return;
+    }
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('wa.me')) {
+      const fullUrl = trimmed.startsWith('http') ? trimmed : `https://${trimmed}`;
+      window.open(fullUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    onNavigate('categories');
+  };
+
+  // Helper to extract embeddable video URL (YouTube, Vimeo, etc.)
+  const getEmbedVideoUrl = (url?: string): string | null => {
+    if (!url) return null;
+    const trimmed = url.trim();
+    // YouTube Watch or Shorts or standard share
+    const ytMatch = trimmed.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    if (ytMatch && ytMatch[1]) {
+      return `https://www.youtube.com/embed/${ytMatch[1]}?autoplay=0&rel=0`;
+    }
+    // Vimeo
+    const vimeoMatch = trimmed.match(/vimeo\.com\/(\d+)/);
+    if (vimeoMatch && vimeoMatch[1]) {
+      return `https://player.vimeo.com/video/${vimeoMatch[1]}`;
+    }
+    return null;
+  };
+
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-3xl mx-auto space-y-6">
       {/* Header Profile Card */}
@@ -110,8 +191,126 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* Activation Banner inside Profile if not blocked */}
-        {!userProfile.isBlocked && (
+        {/* Admin Announcement / Propaganda / Message Zone */}
+        {!userProfile.isBlocked && activeAnnouncement ? (
+          <div className="bg-gradient-to-br from-blue-50/95 via-indigo-50/70 to-blue-50/95 rounded-2xl p-5 border border-blue-200/90 shadow-sm space-y-4 relative overflow-hidden">
+            {/* Header / Badge row */}
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white rounded-lg text-[11px] font-black tracking-wide uppercase shadow-xs">
+                  <span className="material-symbols-outlined text-sm">
+                    {activeAnnouncement.type === 'video' ? 'smart_display' : activeAnnouncement.type === 'image' ? 'photo_camera' : 'campaign'}
+                  </span>
+                  <span>{activeAnnouncement.badge || 'COMUNICADO ADM'}</span>
+                </span>
+
+                {userAnnouncements.length > 1 && (
+                  <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-blue-200 text-[11px] font-bold text-blue-700">
+                    <button
+                      onClick={() => setCurrentAnnIndex((prev) => (prev > 0 ? prev - 1 : userAnnouncements.length - 1))}
+                      className="hover:text-blue-950 px-1 cursor-pointer"
+                      title="Anterior"
+                    >
+                      ◀
+                    </button>
+                    <span>{currentAnnIndex + 1} de {userAnnouncements.length}</span>
+                    <button
+                      onClick={() => setCurrentAnnIndex((prev) => (prev < userAnnouncements.length - 1 ? prev + 1 : 0))}
+                      className="hover:text-blue-950 px-1 cursor-pointer"
+                      title="Próximo"
+                    >
+                      ▶
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {activeAnnouncement.dismissible && (
+                <button
+                  onClick={() => handleDismissAnnouncement(activeAnnouncement.id)}
+                  className="w-7 h-7 rounded-lg bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                  title="Fechar mensagem"
+                >
+                  <span className="material-symbols-outlined text-sm">close</span>
+                </button>
+              )}
+            </div>
+
+            {/* Title & Body */}
+            <div className="space-y-2">
+              <h4 className="font-extrabold text-slate-900 text-base leading-snug">
+                {activeAnnouncement.title}
+              </h4>
+              
+              {activeAnnouncement.content && (
+                <p className="text-xs md:text-sm text-slate-700 leading-relaxed whitespace-pre-line">
+                  {activeAnnouncement.content}
+                </p>
+              )}
+            </div>
+
+            {/* Media Rendering: Image or Video with 1080 × 1350 px (4:5) mobile aspect ratio */}
+            {activeAnnouncement.type === 'image' && activeAnnouncement.mediaUrl && (
+              <div className="rounded-2xl overflow-hidden border border-blue-200/80 bg-slate-950 shadow-md w-full max-w-md mx-auto aspect-[4/5] relative">
+                <img
+                  src={activeAnnouncement.mediaUrl}
+                  alt={activeAnnouncement.title}
+                  className="w-full h-full object-cover rounded-2xl"
+                  referrerPolicy="no-referrer"
+                  onError={(e) => {
+                    (e.target as HTMLElement).style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
+
+            {activeAnnouncement.type === 'video' && activeAnnouncement.mediaUrl && (
+              <div className="rounded-2xl overflow-hidden border border-blue-200/80 bg-black shadow-md w-full max-w-md mx-auto aspect-[4/5] relative flex items-center justify-center">
+                {getEmbedVideoUrl(activeAnnouncement.mediaUrl) ? (
+                  <iframe
+                    src={getEmbedVideoUrl(activeAnnouncement.mediaUrl)!}
+                    title={activeAnnouncement.title}
+                    className="w-full h-full border-0 rounded-2xl"
+                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                    allowFullScreen
+                  />
+                ) : (
+                  <video
+                    src={activeAnnouncement.mediaUrl}
+                    controls
+                    className="w-full h-full object-cover rounded-2xl"
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Action Call to Action Button */}
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
+              {activeAnnouncement.actionText ? (
+                <button
+                  onClick={() => handleActionClick(activeAnnouncement.actionUrl)}
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>{activeAnnouncement.actionText}</span>
+                  <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => onNavigate('activation')}
+                  className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  <span>Ativar Especialidade</span>
+                  <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                </button>
+              )}
+
+              <span className="text-[11px] text-slate-500 font-medium">
+                NgolaTeste • Atualizações Oficiais
+              </span>
+            </div>
+          </div>
+        ) : !userProfile.isBlocked ? (
+          /* Default Activation Banner if no announcement */
           <div className="bg-blue-50/90 rounded-2xl p-5 border border-blue-100 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="space-y-1 text-center sm:text-left">
               <h4 className="font-bold text-slate-900 text-sm">
@@ -128,7 +327,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               Ativar Especialidade
             </button>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* User Stats Grid */}

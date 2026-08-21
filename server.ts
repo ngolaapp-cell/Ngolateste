@@ -11,7 +11,8 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 function sanitizeUrl(rawUrl?: string): string {
   if (!rawUrl) return "";
@@ -668,6 +669,248 @@ app.post("/api/supabase/save-module", async (req, res) => {
   } catch (err: any) {
     return res.status(500).json({ success: false, message: err?.message || String(err) });
   }
+});
+
+// Storage for shared results (In-Memory + Supabase persistence)
+interface SharedResultData {
+  id: string;
+  candidateName: string;
+  score: number;
+  total: number;
+  percentage: number;
+  finalGrade: number;
+  categoryName: string;
+  imageDataUri?: string;
+  imageUrl?: string;
+  createdAt: number;
+}
+const sharedResultsMap = new Map<string, SharedResultData>();
+
+// Upload Shared Result Card to Supabase / Server storage
+app.post("/api/share/save-result", async (req, res) => {
+  try {
+    const { id, candidateName, score, total, percentage, finalGrade, categoryName, imageDataUri } = req.body;
+    const cleanId = (id && typeof id === "string") ? id.trim() : `res-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    
+    let publicImageUrl = "";
+
+    // 1. If Supabase storage is available, upload to Supabase Storage bucket
+    if (serverSupabase && imageDataUri && typeof imageDataUri === "string" && imageDataUri.startsWith("data:image")) {
+      try {
+        const base64Data = imageDataUri.replace(/^data:image\/\w+;base64,/, "");
+        const imageBuffer = Buffer.from(base64Data, "base64");
+        const filePath = `shared-results/${cleanId}.png`;
+
+        // Try uploading to 'public' or 'Logotipo' or 'resultados' bucket
+        const { data: uploadData, error: uploadErr } = await serverSupabase.storage
+          .from("Logotipo")
+          .upload(filePath, imageBuffer, {
+            contentType: "image/png",
+            upsert: true,
+          });
+
+        if (!uploadErr && uploadData) {
+          const { data: publicUrlData } = serverSupabase.storage
+            .from("Logotipo")
+            .getPublicUrl(filePath);
+          publicImageUrl = publicUrlData?.publicUrl || "";
+        }
+      } catch (uploadEx) {
+        console.warn("Could not upload result image to Supabase storage bucket:", uploadEx);
+      }
+    }
+
+    const resultRecord: SharedResultData = {
+      id: cleanId,
+      candidateName: candidateName || "Candidato(a)",
+      score: Number(score) || 0,
+      total: Number(total) || 20,
+      percentage: Number(percentage) || 0,
+      finalGrade: Number(finalGrade) || 0,
+      categoryName: categoryName || "Concursos Públicos Angola",
+      imageDataUri: imageDataUri || undefined,
+      imageUrl: publicImageUrl || undefined,
+      createdAt: Date.now(),
+    };
+
+    sharedResultsMap.set(cleanId, resultRecord);
+
+    // Also persist record metadata in Supabase if table exists
+    if (serverSupabase) {
+      try {
+        await serverSupabase.from("resultados_testes").insert({
+          id: cleanId,
+          score: resultRecord.score,
+          total: resultRecord.total,
+          percentage: resultRecord.percentage,
+          final_grade: resultRecord.finalGrade,
+          category_name: resultRecord.categoryName,
+          study_tip: resultRecord.candidateName,
+          created_at: new Date().toISOString(),
+        });
+      } catch (_) {}
+    }
+
+    const host = req.get("host") || "ngolateste.netlify.app";
+    const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+    const shareableLandingUrl = `${protocol}://${host}/share/${cleanId}`;
+
+    return res.json({
+      success: true,
+      id: cleanId,
+      shareUrl: shareableLandingUrl,
+      imageUrl: publicImageUrl || undefined,
+    });
+  } catch (err: any) {
+    console.error("Error saving shared result:", err);
+    return res.status(500).json({ success: false, message: "Erro ao salvar cartão de resultado." });
+  }
+});
+
+// Dynamic Facebook OpenGraph Landing Page for Results (/share/:id)
+app.get("/share/:id", async (req, res) => {
+  const resultId = req.params.id;
+  const result = sharedResultsMap.get(resultId);
+
+  const candidateName = result ? result.candidateName : "Candidato(a)";
+  const score = result ? result.score : 18;
+  const total = result ? result.total : 20;
+  const finalGrade = result ? result.finalGrade : 18;
+  const percentage = result ? result.percentage : 90;
+  const category = result ? result.categoryName : "Concurso Público em Angola";
+
+  const defaultOgImage = "https://tmvhypfpqocgksaxywuj.supabase.co/storage/v1/object/public/Logotipo/ngola%20teste%20logotipo.png";
+  const ogImageUrl = result?.imageUrl || (result?.id ? `/api/share/image/${result.id}` : defaultOgImage);
+
+  const host = req.get("host") || "ngolateste.netlify.app";
+  const protocol = req.protocol === "https" || req.get("x-forwarded-proto") === "https" ? "https" : "http";
+  const currentFullUrl = `${protocol}://${host}/share/${resultId}`;
+
+  const title = `🇦🇴 ${candidateName} tirou ${finalGrade}/20 Valores no NgolaTeste!`;
+  const description = `Desempenho oficial: ${score}/${total} acertos (${percentage}%) em ${category}. Participe do Desafio dos 100 Likes e prepare-se para os Concursos Públicos em Angola!`;
+
+  const html = `<!DOCTYPE html>
+<html lang="pt-AO">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+
+  <!-- Facebook Open Graph Meta Tags -->
+  <meta property="og:type" content="article" />
+  <meta property="og:url" content="${currentFullUrl}" />
+  <meta property="og:title" content="${title}" />
+  <meta property="og:description" content="${description}" />
+  <meta property="og:image" content="${ogImageUrl}" />
+  <meta property="og:image:width" content="1080" />
+  <meta property="og:image:height" content="1350" />
+  <meta property="og:image:alt" content="Cartão de Desempenho Oficial NgolaTeste" />
+  <meta property="fb:app_id" content="966242223397117" />
+
+  <!-- Twitter Card Meta Tags -->
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="${title}" />
+  <meta name="twitter:description" content="${description}" />
+  <meta name="twitter:image" content="${ogImageUrl}" />
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      background: #001A3D;
+      color: #ffffff;
+      margin: 0;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      box-sizing: border-box;
+      text-align: center;
+    }
+    .card {
+      background: linear-gradient(135deg, #002244 0%, #0050b3 50%, #00AEEF 100%);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 24px;
+      padding: 32px 24px;
+      max-width: 480px;
+      width: 100%;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+    }
+    .badge {
+      background: #facc15;
+      color: #001A3D;
+      font-weight: 900;
+      padding: 6px 14px;
+      border-radius: 12px;
+      font-size: 12px;
+      text-transform: uppercase;
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+    .btn {
+      background: #ffffff;
+      color: #002244;
+      font-weight: 800;
+      padding: 16px 28px;
+      border-radius: 16px;
+      text-decoration: none;
+      display: inline-block;
+      margin-top: 24px;
+      font-size: 15px;
+      transition: transform 0.1s ease;
+    }
+    .btn:hover {
+      transform: scale(1.03);
+    }
+    .score {
+      font-size: 54px;
+      font-weight: 900;
+      color: #ffffff;
+      line-height: 1;
+      margin: 12px 0 6px;
+    }
+    .sub {
+      color: #bae6fd;
+      font-size: 14px;
+      margin: 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="badge">🇦🇴 NgolaTeste • Resumo Oficial</div>
+    <h2 style="margin: 0; font-size: 20px;">${candidateName}</h2>
+    <div class="score">${finalGrade} <span style="font-size: 24px; color: #facc15;">/ 20</span></div>
+    <p class="sub">${score} de ${total} Questões Corretas (${percentage}%)</p>
+    <p style="color: #e0f2fe; font-size: 13px; margin: 16px 0 0 0; line-height: 1.5;">
+      Especialidade: <strong>${category}</strong><br/>
+      💡 <em>Desafio dos 100 Likes: Apoie este candidato para ganhar 1 inscrição gratuita no NgolaTeste!</em>
+    </p>
+
+    <a href="/" class="btn">🚀 Fazer Simulado Grátis no NgolaTeste</a>
+  </div>
+</body>
+</html>`;
+
+  res.send(html);
+});
+
+// Endpoint serving image directly if stored as dataUri
+app.get("/api/share/image/:id", (req, res) => {
+  const result = sharedResultsMap.get(req.params.id);
+  if (result && result.imageDataUri && result.imageDataUri.startsWith("data:image")) {
+    const base64Data = result.imageDataUri.replace(/^data:image\/\w+;base64,/, "");
+    const img = Buffer.from(base64Data, "base64");
+    res.writeHead(200, {
+      "Content-Type": "image/png",
+      "Content-Length": img.length,
+      "Cache-Control": "public, max-age=86400",
+    });
+    return res.end(img);
+  }
+  // Redirect to official logo
+  res.redirect("https://tmvhypfpqocgksaxywuj.supabase.co/storage/v1/object/public/Logotipo/ngola%20teste%20logotipo.png");
 });
 
 

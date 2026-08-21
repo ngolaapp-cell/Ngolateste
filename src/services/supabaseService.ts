@@ -1,5 +1,5 @@
 import { getSupabaseClient, isSupabaseConfigured, supabase } from '../lib/supabase';
-import { Category, Specialization, TestModule, Question, UserProfile, ExamResult } from '../types';
+import { Category, Specialization, TestModule, Question, UserProfile, ExamResult, AdminAnnouncement } from '../types';
 import { HOME_CATEGORIES, SPECIALIZATIONS, TEST_MODULES, MOCK_QUESTIONS } from '../data/mockData';
 
 // --- CATEGORIES ---
@@ -1803,6 +1803,147 @@ export async function adminToggleUserSpecializationActivation(
   return true;
 }
 
+// --- ADMIN ANNOUNCEMENTS / PROPAGANDA / MENSAGENS ---
+const DEFAULT_ANNOUNCEMENTS: AdminAnnouncement[] = [
+  {
+    id: 'ann-default-1',
+    title: '📢 Preparatório Oficial NgolaTeste 2026/2027',
+    content: 'Aceda aos simulados com questões atualizadas dos concursos públicos de Angola (MINSA, MED, AGT e PNA). Ative a sua especialidade para desbloquear todos os módulos de teste!',
+    type: 'text',
+    badge: 'Comunicado ADM',
+    actionText: 'Ativar Especialidade',
+    actionUrl: 'activation',
+    targetType: 'all',
+    targetPhones: [],
+    active: true,
+    dismissible: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
+export async function fetchAdminAnnouncements(): Promise<AdminAnnouncement[]> {
+  const localSaved = localStorage.getItem('ngola_admin_announcements');
+  const fallbackList: AdminAnnouncement[] = localSaved ? JSON.parse(localSaved) : DEFAULT_ANNOUNCEMENTS;
+
+  const client = getSupabaseClient();
+  if (!isSupabaseConfigured() || !client) {
+    return fallbackList;
+  }
+
+  try {
+    let { data, error } = await client.from('comunicados').select('*').order('created_at', { ascending: false });
+    if (error || !data || data.length === 0) {
+      const res = await client.from('admin_announcements').select('*').order('created_at', { ascending: false });
+      data = res.data;
+      error = res.error;
+    }
+
+    if (error || !data || data.length === 0) {
+      return fallbackList;
+    }
+
+    const mapped: AdminAnnouncement[] = data.map((item: any) => {
+      let targetPhones: string[] = [];
+      if (Array.isArray(item.target_phones)) {
+        targetPhones = item.target_phones;
+      } else if (typeof item.target_phones === 'string') {
+        try {
+          targetPhones = JSON.parse(item.target_phones);
+        } catch (_) {
+          targetPhones = [item.target_phones];
+        }
+      }
+
+      return {
+        id: String(item.id),
+        title: item.title || item.titulo || 'Comunicado do Administrador',
+        content: item.content || item.conteudo || item.mensagem || '',
+        type: (item.type || item.tipo || 'text') as 'text' | 'image' | 'video',
+        mediaUrl: item.media_url || item.mediaUrl || item.imagem_url || item.video_url || undefined,
+        actionText: item.action_text || item.actionText || item.botao_texto || undefined,
+        actionUrl: item.action_url || item.actionUrl || item.botao_link || undefined,
+        badge: item.badge || item.etiqueta || 'Comunicado',
+        targetType: (item.target_type || item.targetType || 'all') as 'all' | 'single' | 'selected',
+        targetPhones,
+        active: Boolean(item.active ?? item.ativo ?? true),
+        dismissible: Boolean(item.dismissible ?? item.fechavel ?? true),
+        createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+      };
+    });
+
+    localStorage.setItem('ngola_admin_announcements', JSON.stringify(mapped));
+    return mapped;
+  } catch (err) {
+    console.warn('Supabase fetchAdminAnnouncements fallback:', err);
+    return fallbackList;
+  }
+}
+
+export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ success: boolean; message: string }> {
+  // Update local storage cache
+  const existing = await fetchAdminAnnouncements();
+  const filtered = existing.filter((a) => a.id !== ann.id);
+  const updated = [ann, ...filtered];
+  localStorage.setItem('ngola_admin_announcements', JSON.stringify(updated));
+
+  const client = getSupabaseClient();
+  if (!isSupabaseConfigured() || !client) {
+    return { success: true, message: 'Mensagem/Propaganda guardada localmente com sucesso.' };
+  }
+
+  try {
+    const payload = {
+      id: String(ann.id),
+      title: ann.title,
+      content: ann.content,
+      type: ann.type,
+      media_url: ann.mediaUrl || null,
+      action_text: ann.actionText || null,
+      action_url: ann.actionUrl || null,
+      badge: ann.badge || 'Comunicado ADM',
+      target_type: ann.targetType,
+      target_phones: ann.targetPhones || [],
+      active: Boolean(ann.active),
+      dismissible: Boolean(ann.dismissible ?? true),
+      created_at: ann.createdAt || new Date().toISOString(),
+    };
+
+    let res = await client.from('comunicados').upsert(payload, { onConflict: 'id' });
+    if (res.error) {
+      res = await client.from('admin_announcements').upsert(payload, { onConflict: 'id' });
+    }
+
+    if (res.error) {
+      console.warn('Supabase announcement save warning:', res.error);
+      return { success: true, message: `Salvo no dispositivo. Aviso Supabase: ${res.error.message}` };
+    }
+
+    return { success: true, message: 'Mensagem/Propaganda publicada com sucesso no Supabase!' };
+  } catch (err: any) {
+    console.error('Error saving announcement to Supabase:', err);
+    return { success: false, message: `Erro ao salvar no Supabase: ${err?.message || String(err)}` };
+  }
+}
+
+export async function deleteAdminAnnouncement(id: string): Promise<{ success: boolean; message: string }> {
+  const existing = await fetchAdminAnnouncements();
+  const updated = existing.filter((a) => a.id !== id);
+  localStorage.setItem('ngola_admin_announcements', JSON.stringify(updated));
+
+  const client = getSupabaseClient();
+  if (!isSupabaseConfigured() || !client) {
+    return { success: true, message: 'Mensagem removida com sucesso.' };
+  }
+
+  try {
+    await client.from('comunicados').delete().eq('id', id);
+    await client.from('admin_announcements').delete().eq('id', id);
+    return { success: true, message: 'Mensagem excluída com sucesso do Supabase.' };
+  } catch (err: any) {
+    return { success: true, message: `Mensagem apagada localmente. Erro Supabase: ${err?.message || String(err)}` };
+  }
+}
+
 export async function validateAndApplyActivationCode(
   rawCode: string,
   userPhone?: string,
@@ -2837,6 +2978,23 @@ CREATE TABLE public.configuracoes (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 9. Tabela: Comunicados, Propagandas e Mensagens do Administrador
+CREATE TABLE public.comunicados (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  type TEXT DEFAULT 'text',
+  media_url TEXT,
+  action_text TEXT,
+  action_url TEXT,
+  badge TEXT DEFAULT 'Comunicado ADM',
+  target_type TEXT DEFAULT 'all',
+  target_phones JSONB DEFAULT '[]'::jsonb,
+  active BOOLEAN DEFAULT true,
+  dismissible BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- --------------------------------------------------------------------
 -- ETAPA 3: ATIVAÇÃO DE RLS E LIBERAÇÃO TOTAL DE PERMISSÕES CRUD
 -- Permite que o front-end crie, leia, atualize e apague sem bloqueios
@@ -2849,6 +3007,7 @@ ALTER TABLE public.usuarios ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.resultados_testes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.codigos_ativacao ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.configuracoes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.comunicados ENABLE ROW LEVEL SECURITY;
 
 DO $$
 DECLARE
@@ -2861,7 +3020,8 @@ DECLARE
     'usuarios', 
     'resultados_testes', 
     'codigos_ativacao',
-    'configuracoes'
+    'configuracoes',
+    'comunicados'
   ];
 BEGIN
   FOREACH tbl IN ARRAY tables LOOP

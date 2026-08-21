@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Screen, Specialization, Category, UserProfile } from '../types';
 import { SPECIALIZATIONS, HOME_CATEGORIES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
+import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from '../utils/accessControl';
 
 interface CategoriesViewProps {
   categories?: Category[];
@@ -32,32 +33,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const allSpecs = specializations;
 
   const isSpecFree = (spec: Specialization) => {
-    const parent = displayCategories.find(
-      (c) =>
-        (spec.categoryId && (c.id.toLowerCase() === spec.categoryId.toLowerCase() || c.name.toLowerCase() === spec.categoryId.toLowerCase())) ||
-        (spec.categoryName && (c.name.toLowerCase() === spec.categoryName.toLowerCase() || c.id.toLowerCase() === spec.categoryName.toLowerCase()))
-    );
-    if (!parent) return false;
-    const tag = (parent.statusTag || '').toUpperCase().trim();
-    return tag === 'GRÁTIS' || tag === 'GRATIS' || tag === 'FREE';
+    return checkIsSpecializationFree(spec, displayCategories, selectedCategory);
   };
 
   const isSpecUnlocked = (spec: Specialization) => {
-    if (isSpecFree(spec)) return true;
-    if (!userProfile) return false;
-    const activated = userProfile.activatedSpecializations || [];
-    if (
-      activated.includes(spec.id) ||
-      activated.includes(spec.title) ||
-      activated.some(
-        (s) =>
-          s.toLowerCase().trim() === spec.id.toLowerCase().trim() ||
-          s.toLowerCase().trim() === spec.title.toLowerCase().trim()
-      )
-    ) {
-      return true;
-    }
-    return false;
+    return checkIsSpecializationUnlocked(spec, userProfile, displayCategories, selectedCategory);
   };
 
   // Filter specializations based on active category
@@ -94,11 +74,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       : displayCategories.find((c) => c.id === activeCategoryFilter)?.name || selectedCategory?.name;
 
   const activeCategoryObj = activeCategoryFilter === 'all' ? null : displayCategories.find((c) => c.id === activeCategoryFilter);
-  const isActiveCategoryFree = activeCategoryObj && (
-    (activeCategoryObj.statusTag || '').toUpperCase() === 'GRÁTIS' ||
-    (activeCategoryObj.statusTag || '').toUpperCase() === 'GRATIS' ||
-    (activeCategoryObj.statusTag || '').toUpperCase() === 'FREE'
-  );
+  const isActiveCategoryFree = activeCategoryObj ? checkIsCategoryFree(activeCategoryObj, displayCategories) : false;
 
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-5xl mx-auto">
@@ -135,7 +111,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             ? `🎉 Acesso 100% Gratuito! Todos os testes e simulados de ${currentCategoryName} estão liberados para todos os candidatos, sem necessidade de pagamento.`
             : currentCategoryName
             ? `Clique na especialização desejada do concurso de ${currentCategoryName} para aceder ou ativar com seu código.`
-            : 'Cada especialidade possui um código de ativação individual (1.000 Kz por 2 semanas), exceto categorias marcadas como GRÁTIS.'}
+            : 'Cada especialidade possui um código de ativação individual (1.000 Kz por 2 semanas), exceto categorias com acesso grátis liberado.'}
         </p>
       </header>
 
@@ -157,10 +133,7 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </button>
 
         {displayCategories.map((cat) => {
-          const isCatFree =
-            (cat.statusTag || '').toUpperCase() === 'GRÁTIS' ||
-            (cat.statusTag || '').toUpperCase() === 'GRATIS' ||
-            (cat.statusTag || '').toUpperCase() === 'FREE';
+          const isCatFree = checkIsCategoryFree(cat, displayCategories);
 
           return (
             <button

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Category, Screen } from '../types';
+import { checkIsCategoryFree, isFreeStatusTag } from '../utils/accessControl';
 
 interface CategoryCarouselProps {
   categories: Category[];
@@ -87,8 +88,7 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
   };
 
   const isCategoryFree = (cat: Category) => {
-    const tag = (cat.statusTag || '').toUpperCase().trim();
-    return tag === 'GRÁTIS' || tag === 'GRATIS' || tag === 'FREE';
+    return checkIsCategoryFree(cat, categories);
   };
 
   const handleStartSimuladoFromSlide = (e: React.MouseEvent, cat: Category) => {
@@ -146,14 +146,14 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
                   {cat.statusTag && (
                     <span
                       className={`${
-                        (cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS'
+                        isFreeStatusTag(cat.statusTag)
                           ? 'bg-emerald-600/95 border-emerald-300 text-white shadow-md'
                           : cat.statusTag === 'LIBERADO'
                           ? 'bg-emerald-500/90 border-emerald-400/50 text-white'
                           : 'bg-amber-500/90 border-amber-400/50 text-white'
                       } backdrop-blur-md text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider border shadow-xs flex items-center gap-1`}
                     >
-                      {((cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS') && (
+                      {isFreeStatusTag(cat.statusTag) && (
                         <span className="material-symbols-outlined text-xs">savings</span>
                       )}
                       <span>{cat.statusTag}</span>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Screen, Question, TestModule, Category, Specialization, UserProfile } from '../types';
+import { Screen, Question, TestModule, Category, Specialization, UserProfile, AdminAnnouncement } from '../types';
 import { parseBulkQuestionsText } from '../utils/bulkQuestionParser';
+import { isFreeStatusTag } from '../utils/accessControl';
 import { SPECIALIZATIONS } from '../data/mockData';
 import { isSupabaseConfigured, getSupabaseConfig, resetSupabaseClient, sanitizeSupabaseUrl, sanitizeSupabaseKey } from '../lib/supabase';
 import {
@@ -35,6 +36,9 @@ import {
   fetchAdminSmtpStatus,
   saveAdminSmtpSettings,
   testAdminSmtpDelivery,
+  fetchAdminAnnouncements,
+  saveAdminAnnouncement,
+  deleteAdminAnnouncement,
   TableStatusReport,
 } from '../services/supabaseService';
 
@@ -270,9 +274,30 @@ export const AdminView: React.FC<AdminViewProps> = ({
   onUpdateAdminRecoveryEmail,
   onLockAdmin,
 }) => {
-  const [activeTab, setActiveTab] = useState<'modules' | 'categories' | 'specializations' | 'bulk' | 'codes' | 'stats' | 'security' | 'supabase'>('modules');
+  const [activeTab, setActiveTab] = useState<'modules' | 'categories' | 'specializations' | 'bulk' | 'codes' | 'announcements' | 'stats' | 'security' | 'supabase'>('modules');
   const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
   const [passwordSuccessMsg, setPasswordSuccessMsg] = useState('');
+
+  // Admin Announcements / Propaganda States
+  const [announcementsList, setAnnouncementsList] = useState<AdminAnnouncement[]>([]);
+  const [isLoadingAnnouncements, setIsLoadingAnnouncements] = useState(false);
+  const [editingAnnouncement, setEditingAnnouncement] = useState<AdminAnnouncement | null>(null);
+
+  const [annTitle, setAnnTitle] = useState('');
+  const [annContent, setAnnContent] = useState('');
+  const [annType, setAnnType] = useState<'text' | 'image' | 'video'>('text');
+  const [annBadge, setAnnBadge] = useState('📢 COMUNICADO ADM');
+  const [annMediaUrl, setAnnMediaUrl] = useState('');
+  const [annActionText, setAnnActionText] = useState('Ativar Especialidade');
+  const [annActionUrl, setAnnActionUrl] = useState('activation');
+  const [annTargetType, setAnnTargetType] = useState<'all' | 'single' | 'selected'>('all');
+  const [annTargetPhones, setAnnTargetPhones] = useState<string[]>([]);
+  const [annActive, setAnnActive] = useState(true);
+  const [annDismissible, setAnnDismissible] = useState(true);
+  const [annNotice, setAnnNotice] = useState<{ success: boolean; message: string } | null>(null);
+  const [isSavingAnn, setIsSavingAnn] = useState(false);
+  const [isUploadingAnnMedia, setIsUploadingAnnMedia] = useState(false);
+  const [annUserSearch, setAnnUserSearch] = useState('');
 
   // Admin Recovery Email states
   const [recoveryEmailInput, setRecoveryEmailInput] = useState(adminRecoveryEmail || 'ngolaapp@gmail.com');
@@ -1216,6 +1241,129 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
     setTimeout(() => setCopiedCodeToast(null), 3000);
   };
 
+  // --- ANNOUNCEMENTS & PROPAGANDA HANDLERS ---
+  const loadAnnouncements = async () => {
+    setIsLoadingAnnouncements(true);
+    try {
+      const data = await fetchAdminAnnouncements();
+      setAnnouncementsList(data || []);
+    } catch (err) {
+      console.warn('Error loading announcements:', err);
+    } finally {
+      setIsLoadingAnnouncements(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'announcements') {
+      loadAnnouncements();
+      loadPlatformStats();
+    }
+  }, [activeTab]);
+
+  const handleResetAnnForm = () => {
+    setEditingAnnouncement(null);
+    setAnnTitle('');
+    setAnnContent('');
+    setAnnType('text');
+    setAnnBadge('📢 COMUNICADO ADM');
+    setAnnMediaUrl('');
+    setAnnActionText('Ativar Especialidade');
+    setAnnActionUrl('activation');
+    setAnnTargetType('all');
+    setAnnTargetPhones([]);
+    setAnnActive(true);
+    setAnnDismissible(true);
+    setAnnNotice(null);
+  };
+
+  const handleStartEditAnn = (ann: AdminAnnouncement) => {
+    setEditingAnnouncement(ann);
+    setAnnTitle(ann.title);
+    setAnnContent(ann.content);
+    setAnnType(ann.type);
+    setAnnBadge(ann.badge || '📢 COMUNICADO ADM');
+    setAnnMediaUrl(ann.mediaUrl || '');
+    setAnnActionText(ann.actionText || '');
+    setAnnActionUrl(ann.actionUrl || '');
+    setAnnTargetType(ann.targetType);
+    setAnnTargetPhones(ann.targetPhones || []);
+    setAnnActive(ann.active);
+    setAnnDismissible(ann.dismissible);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSaveAnnouncement = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!annTitle.trim()) {
+      alert('Por favor informe o título do comunicado ou propaganda.');
+      return;
+    }
+    if (annTargetType !== 'all' && annTargetPhones.length === 0) {
+      alert('Por favor selecione pelo menos um utilizador destinatário para este comunicado direcionado.');
+      return;
+    }
+
+    setIsSavingAnn(true);
+    setAnnNotice(null);
+
+    const newAnnouncement: AdminAnnouncement = {
+      id: editingAnnouncement ? editingAnnouncement.id : `ann-${Date.now()}`,
+      title: annTitle.trim(),
+      content: annContent.trim(),
+      type: annType,
+      mediaUrl: annMediaUrl.trim() || undefined,
+      actionText: annActionText.trim() || undefined,
+      actionUrl: annActionUrl.trim() || undefined,
+      badge: annBadge.trim() || '📢 COMUNICADO ADM',
+      targetType: annTargetType,
+      targetPhones: annTargetPhones,
+      active: annActive,
+      dismissible: annDismissible,
+      createdAt: editingAnnouncement ? editingAnnouncement.createdAt : new Date().toISOString(),
+    };
+
+    const res = await saveAdminAnnouncement(newAnnouncement);
+    setIsSavingAnn(false);
+    setAnnNotice(res);
+    await loadAnnouncements();
+    if (res.success) {
+      handleResetAnnForm();
+      setTimeout(() => setAnnNotice(null), 5000);
+    }
+  };
+
+  const handleDeleteAnnouncement = async (id: string, title: string) => {
+    if (!confirm(`Tem certeza que deseja apagar o comunicado "${title}"?`)) return;
+    const res = await deleteAdminAnnouncement(id);
+    setAnnNotice(res);
+    await loadAnnouncements();
+    setTimeout(() => setAnnNotice(null), 4000);
+  };
+
+  const handleToggleAnnouncementActive = async (ann: AdminAnnouncement) => {
+    const updated: AdminAnnouncement = { ...ann, active: !ann.active };
+    await saveAdminAnnouncement(updated);
+    await loadAnnouncements();
+  };
+
+  const handleAnnMediaFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploadingAnnMedia(true);
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const result = ev.target?.result as string;
+      setAnnMediaUrl(result);
+      setIsUploadingAnnMedia(false);
+    };
+    reader.onerror = () => {
+      alert('Falha ao processar ficheiro de imagem.');
+      setIsUploadingAnnMedia(false);
+    };
+    reader.readAsDataURL(file);
+  };
+
   return (
     <div className="pt-4 md:pt-6 pb-32 px-4 md:px-8 max-w-5xl mx-auto space-y-4">
       {/* Top Header - Compact */}
@@ -1238,7 +1386,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
       </div>
 
       {/* Tabs - Compact & Clean */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-8 bg-slate-200/70 p-1 rounded-xl gap-1 text-xs font-bold">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 bg-slate-200/70 p-1 rounded-xl gap-1 text-xs font-bold">
         <button
           onClick={() => setActiveTab('modules')}
           className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1 ${
@@ -1287,6 +1435,16 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
         >
           <span className="material-symbols-outlined text-sm">key</span>
           <span>Códigos</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('announcements')}
+          className={`py-2 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1 ${
+            activeTab === 'announcements' ? 'bg-white text-blue-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'
+          }`}
+        >
+          <span className="material-symbols-outlined text-sm">campaign</span>
+          <span>Mensagens</span>
         </button>
 
         <button
@@ -2083,11 +2241,11 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                    <span>Estado / Tag de Visibilidade *</span>
-                    {newCatStatusTag === 'GRÁTIS' && (
+                    <span>Estado / Tag de Acesso *</span>
+                    {isFreeStatusTag(newCatStatusTag) && (
                       <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
                         <span className="material-symbols-outlined text-xs">savings</span>
-                        <span>Acesso Livre & Gratuito</span>
+                        <span>Acesso Livre & Gratuito (Sem Código)</span>
                       </span>
                     )}
                   </label>
@@ -2096,19 +2254,21 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     onChange={(e) => setNewCatStatusTag(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
-                    <option value="LIBERADO">LIBERADO (Disponível com código/inscrição)</option>
-                    <option value="GRÁTIS">GRÁTIS (100% Gratuito - Sem pagar inscrição)</option>
+                    <option value="LIBERADO">LIBERADO (Disponível com código de ativação individual)</option>
+                    <option value="GRÁTIS">GRÁTIS (100% Gratuito - Sem pagar inscrição / Sem código)</option>
+                    <option value="LIVRE">LIVRE (Acesso Aberto / Sem exigir código)</option>
+                    <option value="DESATIVADO">DESATIVADO (Código desativado - Aberto para todos)</option>
                     <option value="NOVO">NOVO (Destaque recente)</option>
                     <option value="EM BREVE">EM BREVE (Aguardando exames)</option>
                   </select>
                   <p className="text-[11px] mt-1.5 text-slate-500 font-medium">
-                    {newCatStatusTag === 'GRÁTIS' ? (
+                    {isFreeStatusTag(newCatStatusTag) ? (
                       <span className="text-emerald-700 font-bold flex items-center gap-1">
                         <span className="material-symbols-outlined text-xs">check_circle</span>
-                        Utilizadores podem aceder e fazer todos os simulados desta categoria gratuitamente sem precisar de pagar ou inserir código.
+                        Utilizadores podem aceder e fazer todos os simulados desta categoria gratuitamente sem precisar de pagar ou inserir código de ativação.
                       </span>
                     ) : newCatStatusTag === 'LIBERADO' ? (
-                      'Categoria aberta com exames disponíveis (requer código de ativação individual ou geral).'
+                      'Categoria aberta com exames disponíveis (requer código de ativação individual por especialização).'
                     ) : newCatStatusTag === 'NOVO' ? (
                       'Categoria com destaque de novidade recente.'
                     ) : (
@@ -3685,6 +3845,836 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     </div>
                   );
                 })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ================= TAB: ANNOUNCEMENTS & PROPAGANDA ================= */}
+      {activeTab === 'announcements' && (
+        <div className="space-y-6">
+          {/* Header Info & Actions */}
+          <div className="bg-linear-to-r from-blue-900 via-indigo-900 to-slate-900 text-white rounded-3xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute right-0 top-0 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+            <div className="relative z-10 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black tracking-widest uppercase px-3 py-1 rounded-full border border-blue-400/30">
+                    Comunicação & Marketing
+                  </span>
+                  <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-emerald-400/30 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    Supabase Integrado
+                  </span>
+                </div>
+                <h3 className="text-xl md:text-2xl font-black tracking-tight flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-400 text-2xl">campaign</span>
+                  Mensagens, Avisos & Propaganda
+                </h3>
+                <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+                  Crie comunicados em texto, cartazes gráficos ou vídeos promocionais <strong>(dimensão otimizada para celular: 1080 × 1350 px / proporção 4:5 vertical)</strong>. Envie para <strong>todos os utilizadores</strong> ou segmente para <strong>um único utilizador</strong> ou <strong>grupo selecionado</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={loadAnnouncements}
+                  disabled={isLoadingAnnouncements}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 border border-white/10 backdrop-blur-xs"
+                >
+                  <span className={`material-symbols-outlined text-sm ${isLoadingAnnouncements ? 'animate-spin' : ''}`}>
+                    refresh
+                  </span>
+                  <span>Atualizar</span>
+                </button>
+
+                {editingAnnouncement && (
+                  <button
+                    type="button"
+                    onClick={handleResetAnnForm}
+                    className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3.5 py-2.5 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 shadow-md"
+                  >
+                    <span className="material-symbols-outlined text-sm">add_circle</span>
+                    <span>Novo Comunicado</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Feedback Toast */}
+          {annNotice && (
+            <div
+              className={`p-4 rounded-2xl border text-xs font-bold flex items-center justify-between gap-3 shadow-md transition-all ${
+                annNotice.success
+                  ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                  : 'bg-red-50 text-red-900 border-red-300'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span className="material-symbols-outlined text-lg">
+                  {annNotice.success ? 'check_circle' : 'error'}
+                </span>
+                <span>{annNotice.message}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setAnnNotice(null)}
+                className="text-slate-400 hover:text-slate-700 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            </div>
+          )}
+
+          {/* Form: Create or Edit Announcement */}
+          <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200/80 space-y-6">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+              <div className="flex items-center gap-3">
+                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center ${
+                  editingAnnouncement ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
+                }`}>
+                  <span className="material-symbols-outlined text-xl">
+                    {editingAnnouncement ? 'edit_document' : 'add_alert'}
+                  </span>
+                </div>
+                <div>
+                  <h4 className="font-black text-slate-900 text-base">
+                    {editingAnnouncement ? 'Editar Comunicado / Propaganda' : 'Criar Nova Mensagem / Propaganda'}
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Preencha os campos abaixo para disponibilizar o aviso na tela de perfil dos candidatos.
+                  </p>
+                </div>
+              </div>
+
+              {editingAnnouncement && (
+                <span className="bg-amber-100 text-amber-800 text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">
+                  Modo Edição
+                </span>
+              )}
+            </div>
+
+            <form onSubmit={handleSaveAnnouncement} className="space-y-5">
+              {/* Row 1: Title & Badge */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Título Principal do Comunicado <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={annTitle}
+                    onChange={(e) => setAnnTitle(e.target.value)}
+                    placeholder="Ex: Mega Simulado Geral para Concurso Público de Saúde 2026"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                    Etiqueta / Badge Superior
+                  </label>
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={annBadge}
+                      onChange={(e) => setAnnBadge(e.target.value)}
+                      placeholder="Ex: 📢 COMUNICADO ADM"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-3 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                      {['📢 COMUNICADO ADM', '🔥 PROMOÇÃO', '🎉 NOVIDADE', '⚠️ AVISO URGENTE', '💡 DICA', '🎥 VÍDEO'].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setAnnBadge(preset)}
+                          className={`text-[10px] px-2 py-0.5 rounded-md font-bold transition-all cursor-pointer ${
+                            annBadge === preset ? 'bg-blue-600 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'
+                          }`}
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 2: Format Selector (Text, Image, Video) */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
+                  Formato da Mensagem / Mídia
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setAnnType('text')}
+                    className={`p-3.5 rounded-2xl border-2 font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      annType === 'text'
+                        ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-sm'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-2xl">article</span>
+                    <span>1. Mensagem de Texto</span>
+                    <span className="text-[10px] text-slate-500 font-normal">Aviso escrito e orientações</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAnnType('image')}
+                    className={`p-3.5 rounded-2xl border-2 font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      annType === 'image'
+                        ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-sm'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-2xl">image</span>
+                    <span>2. Imagem / Banner (4:5)</span>
+                    <span className="text-[10px] text-blue-700 font-bold bg-blue-100/80 px-2 py-0.5 rounded-full">1080 × 1350 px (Retrato Mobile)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAnnType('video')}
+                    className={`p-3.5 rounded-2xl border-2 font-bold text-xs flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                      annType === 'video'
+                        ? 'bg-blue-50 border-blue-600 text-blue-700 shadow-sm'
+                        : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-2xl">play_circle</span>
+                    <span>3. Vídeo Promocional (4:5)</span>
+                    <span className="text-[10px] text-blue-700 font-bold bg-blue-100/80 px-2 py-0.5 rounded-full">1080 × 1350 px / YouTube / MP4</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Row 3: Media Input (If Image or Video) */}
+              {annType !== 'text' && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <div>
+                      <label className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-blue-600 text-base">
+                          {annType === 'image' ? 'photo_camera' : 'videocam'}
+                        </span>
+                        <span>
+                          {annType === 'image'
+                            ? 'Link da Imagem / Banner ou Upload Direto'
+                            : 'Link do Vídeo (YouTube, Vimeo ou Link Direto)'}
+                        </span>
+                      </label>
+                      <span className="text-[11px] text-blue-700 font-bold flex items-center gap-1 mt-0.5">
+                        <span className="material-symbols-outlined text-xs">aspect_ratio</span>
+                        Dimensão ideal para celular: 1080 × 1350 px (proporção 4:5 vertical)
+                      </span>
+                    </div>
+
+                    {annType === 'image' && (
+                      <label className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold cursor-pointer transition-all flex items-center gap-1 self-start sm:self-auto shadow-xs">
+                        <span className="material-symbols-outlined text-sm">cloud_upload</span>
+                        <span>{isUploadingAnnMedia ? 'Processando...' : 'Carregar Imagem (1080×1350)'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleAnnMediaFileUpload}
+                          className="hidden"
+                        />
+                      </label>
+                    )}
+                  </div>
+
+                  <input
+                    type="url"
+                    value={annMediaUrl}
+                    onChange={(e) => setAnnMediaUrl(e.target.value)}
+                    placeholder={
+                      annType === 'image'
+                        ? 'https://exemplo.com/propaganda-1080x1350.jpg ou carregue do seu dispositivo'
+                        : 'https://www.youtube.com/watch?v=... ou link direto de vídeo mp4'
+                    }
+                    className="w-full bg-white border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+
+                  {annMediaUrl && (
+                    <div className="mt-2 p-2 bg-white rounded-xl border border-slate-200 flex items-center gap-3">
+                      {annType === 'image' ? (
+                        <div className="w-12 h-15 rounded-lg bg-slate-900 overflow-hidden shrink-0 border border-slate-300 aspect-[4/5]">
+                          <img
+                            src={annMediaUrl}
+                            alt="Preview"
+                            className="w-full h-full object-cover"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="w-12 h-15 rounded-lg bg-red-100 text-red-600 flex items-center justify-center shrink-0 aspect-[4/5]">
+                          <span className="material-symbols-outlined">smart_display</span>
+                        </div>
+                      )}
+                      <div className="text-[11px] text-slate-600 truncate flex-1">
+                        <span className="font-bold block text-slate-800">Mídia configurada em 1080 × 1350 px (4:5)</span>
+                        <span className="text-slate-400 font-mono text-[10px] truncate block">{annMediaUrl}</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setAnnMediaUrl('')}
+                        className="text-red-500 hover:text-red-700 text-xs font-bold px-2 py-1 cursor-pointer"
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Row 4: Text Content */}
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Texto da Mensagem / Explicação Detalhada
+                </label>
+                <textarea
+                  rows={4}
+                  value={annContent}
+                  onChange={(e) => setAnnContent(e.target.value)}
+                  placeholder="Escreva aqui as orientações para os candidatos, novidades sobre provas, avisos de ativação ou detalhes da campanha..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white resize-y"
+                />
+              </div>
+
+              {/* Row 5: Action Button (Optional CTA) */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-blue-600 text-base">touch_app</span>
+                  <span>Botão de Ação / Chamada para Ação (Opcional)</span>
+                </span>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Texto do Botão
+                    </label>
+                    <input
+                      type="text"
+                      value={annActionText}
+                      onChange={(e) => setAnnActionText(e.target.value)}
+                      placeholder="Ex: Ativar Especialidade Agora, Ver Concurso, etc."
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Ação ou Link de Destino
+                    </label>
+                    <input
+                      type="text"
+                      value={annActionUrl}
+                      onChange={(e) => setAnnActionUrl(e.target.value)}
+                      placeholder="Ex: activation, categories, tests ou link externo (https://wa.me/...)"
+                      className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-500 font-bold self-center">Sugestões rápidas:</span>
+                  {[
+                    { label: 'Tela de Ativação', target: 'activation' },
+                    { label: 'Categorias', target: 'categories' },
+                    { label: 'Módulos de Testes', target: 'tests' },
+                    { label: 'WhatsApp Suporte', target: 'https://wa.me/244923361877?text=Ol%C3%A1%20Admin%2C%20vi%20o%20comunicado%20no%20NgolaTeste' },
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => {
+                        setAnnActionText(preset.label);
+                        setAnnActionUrl(preset.target);
+                      }}
+                      className="text-[10px] px-2 py-0.5 rounded-md font-bold bg-white hover:bg-slate-200 text-slate-700 border border-slate-200 cursor-pointer"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Row 6: User Targeting (Single vs Selected vs All) */}
+              <div className="bg-slate-50 p-5 rounded-2xl border border-slate-200 space-y-4">
+                <div>
+                  <label className="block text-xs font-black text-slate-900 uppercase tracking-wider mb-1">
+                    Destinatários da Mensagem / Propaganda <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-slate-500 mb-3">
+                    Escolha se o comunicado será visto por toda a plataforma ou apenas por candidatos específicos.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnnTargetType('all');
+                        setAnnTargetPhones([]);
+                      }}
+                      className={`p-3 rounded-xl border-2 font-bold text-xs flex items-center gap-2.5 transition-all cursor-pointer ${
+                        annTargetType === 'all'
+                          ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-lg text-blue-600">groups</span>
+                      <div className="text-left">
+                        <span className="block font-bold">1. Todos os Utilizadores</span>
+                        <span className="text-[10px] font-normal text-slate-500">Transmissão geral</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnnTargetType('single');
+                        if (realStats.usersList.length > 0 && annTargetPhones.length === 0) {
+                          setAnnTargetPhones([realStats.usersList[0].phone]);
+                        }
+                      }}
+                      className={`p-3 rounded-xl border-2 font-bold text-xs flex items-center gap-2.5 transition-all cursor-pointer ${
+                        annTargetType === 'single'
+                          ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-lg text-blue-600">person</span>
+                      <div className="text-left">
+                        <span className="block font-bold">2. Um Único Utilizador</span>
+                        <span className="text-[10px] font-normal text-slate-500">Mensagem privada</span>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnnTargetType('selected');
+                      }}
+                      className={`p-3 rounded-xl border-2 font-bold text-xs flex items-center gap-2.5 transition-all cursor-pointer ${
+                        annTargetType === 'selected'
+                          ? 'bg-blue-50 border-blue-600 text-blue-800 shadow-xs'
+                          : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-100'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-lg text-blue-600">checklist</span>
+                      <div className="text-left">
+                        <span className="block font-bold">3. Vários Selecionados</span>
+                        <span className="text-[10px] font-normal text-slate-500">Grupo de candidatos</span>
+                      </div>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Single User Picker */}
+                {annTargetType === 'single' && (
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                    <label className="block text-xs font-bold text-slate-800">
+                      Selecione o Utilizador Destinatário:
+                    </label>
+
+                    {realStats.usersList.length === 0 ? (
+                      <div className="p-3 bg-amber-50 rounded-lg text-xs text-amber-800">
+                        Nenhum candidato encontrado cadastrado no banco.
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="relative">
+                          <input
+                            type="text"
+                            value={annUserSearch}
+                            onChange={(e) => setAnnUserSearch(e.target.value)}
+                            placeholder="Buscar utilizador por nome, telefone ou email..."
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                          <span className="material-symbols-outlined absolute left-2.5 top-2.5 text-slate-400 text-sm">
+                            search
+                          </span>
+                        </div>
+
+                        <select
+                          value={annTargetPhones[0] || ''}
+                          onChange={(e) => setAnnTargetPhones(e.target.value ? [e.target.value] : [])}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
+                        >
+                          <option value="">-- Escolha um utilizador cadastrado --</option>
+                          {realStats.usersList
+                            .filter((u) => {
+                              const q = annUserSearch.toLowerCase();
+                              return (
+                                !q ||
+                                u.name.toLowerCase().includes(q) ||
+                                u.phone.includes(q) ||
+                                (u.email && u.email.toLowerCase().includes(q))
+                              );
+                            })
+                            .map((u) => (
+                              <option key={u.phone} value={u.phone}>
+                                {u.name} — {u.phone} {u.email ? `(${u.email})` : ''} {u.isActivated ? '⭐ Ativo' : ''}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Multiple Users Picker */}
+                {annTargetType === 'selected' && (
+                  <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs font-bold text-slate-800">
+                          Marque os utilizadores que devem receber:
+                        </label>
+                        <span className="bg-blue-100 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          {annTargetPhones.length} selecionado(s)
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const filtered = realStats.usersList.filter((u) => {
+                              const q = annUserSearch.toLowerCase();
+                              return (
+                                !q ||
+                                u.name.toLowerCase().includes(q) ||
+                                u.phone.includes(q) ||
+                                (u.email && u.email.toLowerCase().includes(q))
+                              );
+                            });
+                            setAnnTargetPhones(Array.from(new Set([...annTargetPhones, ...filtered.map((u) => u.phone)])));
+                          }}
+                          className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded cursor-pointer"
+                        >
+                          Marcar Filtrados
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setAnnTargetPhones([])}
+                          className="text-[10px] font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 px-2 py-1 rounded cursor-pointer"
+                        >
+                          Limpar Todos
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={annUserSearch}
+                        onChange={(e) => setAnnUserSearch(e.target.value)}
+                        placeholder="Filtrar candidatos por nome, telefone ou e-mail..."
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-xs font-medium outline-none focus:ring-1 focus:ring-blue-500"
+                      />
+                      <span className="material-symbols-outlined absolute left-2.5 top-2.5 text-slate-400 text-sm">
+                        search
+                      </span>
+                    </div>
+
+                    <div className="max-h-56 overflow-y-auto space-y-1.5 border border-slate-100 rounded-xl p-2 bg-slate-50/50">
+                      {realStats.usersList
+                        .filter((u) => {
+                          const q = annUserSearch.toLowerCase();
+                          return (
+                            !q ||
+                            u.name.toLowerCase().includes(q) ||
+                            u.phone.includes(q) ||
+                            (u.email && u.email.toLowerCase().includes(q))
+                          );
+                        })
+                        .map((u) => {
+                          const isChecked = annTargetPhones.includes(u.phone);
+                          return (
+                            <label
+                              key={u.phone}
+                              className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-all ${
+                                isChecked ? 'bg-blue-50 border border-blue-200' : 'bg-white border border-slate-200/60 hover:bg-slate-100'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0 pr-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setAnnTargetPhones([...annTargetPhones, u.phone]);
+                                    } else {
+                                      setAnnTargetPhones(annTargetPhones.filter((p) => p !== u.phone));
+                                    }
+                                  }}
+                                  className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                                />
+                                <div className="min-w-0">
+                                  <span className="text-xs font-bold text-slate-900 block truncate">{u.name}</span>
+                                  <span className="text-[10px] text-slate-500 font-mono block truncate">
+                                    {u.phone} {u.email ? `• ${u.email}` : ''}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="shrink-0 flex items-center gap-1">
+                                {u.isActivated && (
+                                  <span className="bg-emerald-100 text-emerald-800 text-[9px] font-black px-1.5 py-0.5 rounded">
+                                    Ativo
+                                  </span>
+                                )}
+                              </div>
+                            </label>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Row 7: Options (Active status & Dismissible) */}
+              <div className="flex flex-wrap items-center gap-6 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={annActive}
+                    onChange={(e) => setAnnActive(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded cursor-pointer"
+                  />
+                  <span>Comunicado Ativo (Visível no perfil dos alunos)</span>
+                </label>
+
+                <label className="flex items-center gap-2.5 cursor-pointer text-xs font-bold text-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={annDismissible}
+                    onChange={(e) => setAnnDismissible(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                  />
+                  <span>Permitir ao utilizador fechar/dispensar a mensagem (Botão X)</span>
+                </label>
+              </div>
+
+              {/* LIVE PREVIEW BOX */}
+              <div className="border-t border-slate-200 pt-5 space-y-3">
+                <span className="text-xs font-black text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                  <span className="material-symbols-outlined text-sm">visibility</span>
+                  Pré-visualização em Tempo Real (Como o aluno verá no perfil):
+                </span>
+
+                <div className="bg-linear-to-r from-blue-900 via-indigo-900 to-slate-900 rounded-2xl p-4 text-white shadow-md relative overflow-hidden">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="bg-blue-500/30 text-blue-200 text-[10px] font-black tracking-wider uppercase px-2.5 py-0.5 rounded-full border border-blue-400/30">
+                      {annBadge || '📢 COMUNICADO ADM'}
+                    </span>
+                    {annDismissible && (
+                      <span className="text-white/60 text-xs">✕ (Fechar)</span>
+                    )}
+                  </div>
+
+                  <h4 className="text-sm md:text-base font-black text-white mb-1.5">
+                    {annTitle || 'Título do comunicado aqui'}
+                  </h4>
+
+                  {annType === 'image' && annMediaUrl && (
+                    <div className="my-3 rounded-2xl overflow-hidden aspect-[4/5] max-w-xs mx-auto bg-black/60 border border-white/20 shadow-lg relative">
+                      <div className="absolute top-2 right-2 z-10 bg-black/70 backdrop-blur-xs text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-white/20">
+                        1080 × 1350 (4:5)
+                      </div>
+                      <img src={annMediaUrl} alt="Banner" className="w-full h-full object-cover rounded-2xl" />
+                    </div>
+                  )}
+
+                  {annType === 'video' && annMediaUrl && (
+                    <div className="my-3 rounded-2xl overflow-hidden aspect-[4/5] max-w-xs mx-auto bg-black border border-white/20 shadow-lg relative flex flex-col items-center justify-center p-4 text-center">
+                      <div className="absolute top-2 right-2 z-10 bg-black/70 backdrop-blur-xs text-white text-[9px] font-black px-2 py-0.5 rounded-full border border-white/20">
+                        1080 × 1350 (4:5)
+                      </div>
+                      <span className="material-symbols-outlined text-red-500 text-4xl mb-2">smart_display</span>
+                      <span className="text-xs font-bold text-white mb-1">Vídeo Promocional Vertical</span>
+                      <span className="text-[10px] text-blue-200 truncate max-w-[200px]">{annMediaUrl}</span>
+                    </div>
+                  )}
+
+                  <p className="text-xs text-slate-200 leading-relaxed whitespace-pre-wrap">
+                    {annContent || 'Conteúdo explicativo do comunicado visualizado pelo candidato.'}
+                  </p>
+
+                  {annActionText && (
+                    <div className="mt-3 pt-2 border-t border-white/10 flex justify-end">
+                      <span className="bg-white text-blue-950 font-black text-[11px] px-3.5 py-1.5 rounded-xl shadow-xs">
+                        {annActionText} →
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <button
+                  type="submit"
+                  disabled={isSavingAnn}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-bold py-3 px-6 rounded-xl shadow-md transition-all active:scale-95 cursor-pointer text-xs flex items-center justify-center gap-2"
+                >
+                  <span className={`material-symbols-outlined text-base ${isSavingAnn ? 'animate-spin' : ''}`}>
+                    {isSavingAnn ? 'refresh' : 'send'}
+                  </span>
+                  <span>
+                    {isSavingAnn
+                      ? 'Salvando no Supabase...'
+                      : editingAnnouncement
+                      ? 'Salvar Alterações do Comunicado'
+                      : 'Publicar Mensagem / Propaganda'}
+                  </span>
+                </button>
+
+                {editingAnnouncement && (
+                  <button
+                    type="button"
+                    onClick={handleResetAnnForm}
+                    className="bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold py-3 px-5 rounded-xl transition-all cursor-pointer text-xs"
+                  >
+                    Cancelar Edição
+                  </button>
+                )}
+              </div>
+            </form>
+          </div>
+
+          {/* List of Published Announcements */}
+          <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200/80 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <h4 className="font-black text-slate-900 text-base flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-600">forum</span>
+                  <span>Comunicados e Propagandas Cadastradas</span>
+                </h4>
+                <p className="text-xs text-slate-500">
+                  {announcementsList.length} registro(s) sincronizado(s) no sistema e no Supabase.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={loadAnnouncements}
+                disabled={isLoadingAnnouncements}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 self-start sm:self-auto"
+              >
+                <span className={`material-symbols-outlined text-xs ${isLoadingAnnouncements ? 'animate-spin' : ''}`}>
+                  sync
+                </span>
+                <span>Recarregar Lista</span>
+              </button>
+            </div>
+
+            {isLoadingAnnouncements ? (
+              <div className="py-12 text-center text-slate-500 text-xs font-medium flex items-center justify-center gap-2">
+                <span className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
+                <span>Carregando comunicados do Supabase...</span>
+              </div>
+            ) : announcementsList.length === 0 ? (
+              <div className="py-12 text-center space-y-2 bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                <span className="material-symbols-outlined text-slate-400 text-4xl">campaign</span>
+                <p className="text-sm font-bold text-slate-700">Nenhum comunicado criado ainda</p>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Use o formulário acima para publicar mensagens, atualizações, novidades ou propagandas para os candidatos.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {announcementsList.map((ann) => (
+                  <div
+                    key={ann.id}
+                    className={`p-5 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+                      ann.active
+                        ? 'bg-white border-blue-200 shadow-sm'
+                        : 'bg-slate-50/80 border-slate-200 opacity-75'
+                    }`}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="bg-blue-50 text-blue-700 text-[10px] font-black px-2.5 py-0.5 rounded-full border border-blue-200">
+                          {ann.badge || 'COMUNICADO'}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleToggleAnnouncementActive(ann)}
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded-full cursor-pointer transition-all ${
+                              ann.active
+                                ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+                            }`}
+                            title="Clique para ativar/desativar exibição"
+                          >
+                            {ann.active ? '● Ativo' : '○ Inativo'}
+                          </button>
+                        </div>
+                      </div>
+
+                      <h5 className="font-black text-slate-900 text-sm leading-snug">{ann.title}</h5>
+
+                      {ann.mediaUrl && (
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 font-medium">
+                          <span className="material-symbols-outlined text-xs text-blue-600">
+                            {ann.type === 'image' ? 'image' : 'smart_display'}
+                          </span>
+                          <span className="truncate">{ann.type === 'image' ? 'Imagem / Banner anexo' : 'Vídeo incorporado'}</span>
+                        </div>
+                      )}
+
+                      <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed">{ann.content}</p>
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+                      <div className="text-slate-500 flex items-center gap-1">
+                        <span className="material-symbols-outlined text-xs">
+                          {ann.targetType === 'all' ? 'groups' : 'person'}
+                        </span>
+                        <span>
+                          {ann.targetType === 'all'
+                            ? 'Todos os Utilizadores'
+                            : ann.targetType === 'single'
+                            ? `1 Utilizador (${ann.targetPhones?.[0] || 'Privado'})`
+                            : `${ann.targetPhones?.length || 0} Utilizadores Selecionados`}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 self-end sm:self-auto">
+                        <button
+                          type="button"
+                          onClick={() => handleStartEditAnn(ann)}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-blue-100 text-slate-700 hover:text-blue-700 font-bold rounded-lg text-xs cursor-pointer flex items-center gap-1 transition-all"
+                        >
+                          <span className="material-symbols-outlined text-xs">edit</span>
+                          <span>Editar</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAnnouncement(ann.id, ann.title)}
+                          className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-xs cursor-pointer flex items-center gap-1 transition-all"
+                          title="Apagar comunicado"
+                        >
+                          <span className="material-symbols-outlined text-xs">delete</span>
+                          <span>Apagar</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

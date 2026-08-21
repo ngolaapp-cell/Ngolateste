@@ -95,4 +95,24 @@ export interface UserProfile {
   isBlocked?: boolean;
   blockedReason?: string;
   blockedAt?: string;
+  role?: 'admin' | 'user' | string;
+  isVip?: boolean;
+  plan?: string;
+  accountStatus?: string;
+}
+
+export interface AdminAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  type: 'text' | 'image' | 'video';
+  mediaUrl?: string;
+  actionText?: string;
+  actionUrl?: string;
+  badge?: string;
+  targetType: 'all' | 'single' | 'selected';
+  targetPhones?: string[];
+  active: boolean;
+  dismissible?: boolean;
+  createdAt: string;
 }
