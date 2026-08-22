@@ -2031,6 +2031,10 @@ export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ s
       created_at: ann.createdAt || new Date().toISOString(),
     };
 
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+    }
+
     let res = await client.from('comunicados').upsert(payload, { onConflict: 'id' });
     if (res.error) {
       res = await client.from('admin_announcements').upsert(payload, { onConflict: 'id' });
@@ -2052,6 +2056,10 @@ export async function deleteAdminAnnouncement(id: string): Promise<{ success: bo
   const existing = await fetchAdminAnnouncements();
   const updated = existing.filter((a) => a.id !== id);
   localStorage.setItem('ngola_admin_announcements', JSON.stringify(updated));
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+  }
 
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {

@@ -6,17 +6,41 @@ interface ProfileViewProps {
   userProfile: UserProfile;
   onNavigate: (screen: Screen) => void;
   onLogout: () => void;
+  announcements?: AdminAnnouncement[];
+  unreadCount?: number;
+  readIds?: string[];
+  dismissedIds?: string[];
+  onMarkAsRead?: (id: string) => void;
+  onMarkAllAsRead?: () => void;
+  onDismissAnnouncement?: (id: string) => void;
+  onRefreshAnnouncements?: () => void;
 }
 
 export const ProfileView: React.FC<ProfileViewProps> = ({
   userProfile,
   onNavigate,
   onLogout,
+  announcements: propAnnouncements,
+  unreadCount: propUnreadCount,
+  readIds: propReadIds,
+  dismissedIds: propDismissedIds,
+  onMarkAsRead: propOnMarkAsRead,
+  onMarkAllAsRead: propOnMarkAllAsRead,
+  onDismissAnnouncement: propOnDismissAnnouncement,
+  onRefreshAnnouncements,
 }) => {
-  const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
-  const [dismissedIds, setDismissedIds] = useState<string[]>(() => {
+  const [localAnnouncements, setLocalAnnouncements] = useState<AdminAnnouncement[]>([]);
+  const [localDismissedIds, setLocalDismissedIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
+      return saved ? JSON.parse(saved) : [];
+    } catch (_) {
+      return [];
+    }
+  });
+  const [localReadIds, setLocalReadIds] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
       return saved ? JSON.parse(saved) : [];
     } catch (_) {
       return [];
@@ -25,17 +49,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [currentAnnIndex, setCurrentAnnIndex] = useState(0);
 
   useEffect(() => {
-    fetchAdminAnnouncements().then((data) => {
-      if (data && data.length > 0) {
-        setAnnouncements(data);
-      }
-    });
-  }, []);
+    if (!propAnnouncements) {
+      fetchAdminAnnouncements().then((data) => {
+        if (data && data.length > 0) {
+          setLocalAnnouncements(data);
+        }
+      });
+    }
+  }, [propAnnouncements]);
+
+  const activeAnnouncementsList = propAnnouncements || localAnnouncements;
+  const activeDismissedIds = propDismissedIds || localDismissedIds;
+  const activeReadIds = propReadIds || localReadIds;
 
   // Filter announcements addressed to this user
-  const userAnnouncements = announcements.filter((a) => {
+  const userAnnouncements = activeAnnouncementsList.filter((a) => {
     if (!a.active) return false;
-    if (dismissedIds.includes(a.id)) return false;
+    if (activeDismissedIds.includes(a.id)) return false;
     if (a.targetType === 'all') return true;
     if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
       const uPhone = userProfile.phone.trim();
@@ -48,15 +78,61 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   });
 
   const activeAnnouncement = userAnnouncements[currentAnnIndex] || userAnnouncements[0] || null;
+  const isCurrentUnread = activeAnnouncement ? !activeReadIds.includes(activeAnnouncement.id) : false;
+  const totalUnreadCount = propUnreadCount !== undefined
+    ? propUnreadCount
+    : userAnnouncements.filter((a) => !activeReadIds.includes(a.id)).length;
 
   const handleDismissAnnouncement = (id: string) => {
-    const updated = [...dismissedIds, id];
-    setDismissedIds(updated);
-    try {
-      localStorage.setItem(`ngola_dismissed_ann_${userProfile.phone}`, JSON.stringify(updated));
-    } catch (_) {}
+    if (propOnDismissAnnouncement) {
+      propOnDismissAnnouncement(id);
+    } else {
+      const updated = [...localDismissedIds, id];
+      setLocalDismissedIds(updated);
+      try {
+        localStorage.setItem(`ngola_dismissed_ann_${userProfile.phone}`, JSON.stringify(updated));
+      } catch (_) {}
+    }
     if (currentAnnIndex > 0) {
       setCurrentAnnIndex((prev) => prev - 1);
+    }
+  };
+
+  const handleToggleReadStatus = (id: string) => {
+    if (activeReadIds.includes(id)) {
+      // Mark as unread
+      const updated = activeReadIds.filter((x) => x !== id);
+      setLocalReadIds(updated);
+      try {
+        localStorage.setItem(`ngola_read_ann_${userProfile.phone}`, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+      } catch (_) {}
+    } else {
+      // Mark as read
+      if (propOnMarkAsRead) {
+        propOnMarkAsRead(id);
+      } else {
+        const updated = [...localReadIds, id];
+        setLocalReadIds(updated);
+        try {
+          localStorage.setItem(`ngola_read_ann_${userProfile.phone}`, JSON.stringify(updated));
+          window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+        } catch (_) {}
+      }
+    }
+  };
+
+  const handleMarkAllRead = () => {
+    if (propOnMarkAllAsRead) {
+      propOnMarkAllAsRead();
+    } else {
+      const allIds = userAnnouncements.map((a) => a.id);
+      const updated = Array.from(new Set([...localReadIds, ...allIds]));
+      setLocalReadIds(updated);
+      try {
+        localStorage.setItem(`ngola_read_ann_${userProfile.phone}`, JSON.stringify(updated));
+        window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+      } catch (_) {}
     }
   };
 
@@ -95,20 +171,73 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-3xl mx-auto space-y-6">
+      {/* Notifications Alert Banner (When unread notifications exist) */}
+      {totalUnreadCount > 0 && (
+        <div
+          id="profile-unread-notifications-banner"
+          className="bg-gradient-to-r from-red-600 to-rose-600 text-white rounded-2xl p-4 shadow-md flex flex-col sm:flex-row items-center justify-between gap-3 animate-fade-in"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-white/20 flex items-center justify-center flex-shrink-0 animate-bounce">
+              <span className="material-symbols-outlined text-white text-xl">notifications_active</span>
+            </div>
+            <div>
+              <h3 className="font-black text-sm tracking-wide">
+                {totalUnreadCount === 1
+                  ? 'Você tem 1 nova notificação do Administrador'
+                  : `Você tem ${totalUnreadCount} novas notificações do Administrador`}
+              </h3>
+              <p className="text-xs text-white/80">
+                Consulte os comunicados oficiais e orientações abaixo.
+              </p>
+            </div>
+          </div>
+
+          <button
+            id="mark-all-read-btn"
+            type="button"
+            onClick={handleMarkAllRead}
+            className="w-full sm:w-auto px-3.5 py-1.5 bg-white text-red-700 hover:bg-red-50 text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
+          >
+            <span className="material-symbols-outlined text-sm">done_all</span>
+            <span>Marcar Todas como Lidas</span>
+          </button>
+        </div>
+      )}
+
       {/* Header Profile Card */}
       <div className="bg-white rounded-3xl p-6 md:p-8 shadow-sm border border-slate-200/80 space-y-6">
         <div className="flex flex-col sm:flex-row items-center gap-5 text-center sm:text-left">
-          <div className="w-20 h-20 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl font-bold shrink-0">
-            <span className="material-symbols-outlined text-4xl">account_circle</span>
+          <div className="relative">
+            <div className="w-20 h-20 bg-blue-100 rounded-3xl flex items-center justify-center text-blue-600 text-3xl font-bold shrink-0">
+              <span className="material-symbols-outlined text-4xl">account_circle</span>
+            </div>
+            {totalUnreadCount > 0 && (
+              <span
+                id="profile-avatar-badge"
+                className="absolute -top-1 -right-1 min-w-[22px] h-[22px] px-1 bg-red-600 text-white text-xs font-black rounded-full flex items-center justify-center border-2 border-white shadow-md animate-pulse"
+                title={`${totalUnreadCount} notificação(ões)`}
+              >
+                {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+              </span>
+            )}
           </div>
 
           <div className="space-y-1 flex-1">
-            <h2 className="text-2xl font-black text-slate-900">{userProfile.name}</h2>
+            <div className="flex items-center justify-center sm:justify-start gap-2">
+              <h2 className="text-2xl font-black text-slate-900">{userProfile.name}</h2>
+              {totalUnreadCount > 0 && (
+                <span className="px-2 py-0.5 bg-red-100 text-red-700 font-bold text-[10px] rounded-full border border-red-200">
+                  {totalUnreadCount} {totalUnreadCount === 1 ? 'Nova Mensagem' : 'Novas Mensagens'}
+                </span>
+              )}
+            </div>
             <p className="text-slate-500 text-sm font-medium">{userProfile.phone}</p>
             <p className="text-slate-400 text-xs">{userProfile.email}</p>
           </div>
 
           <button
+            id="profile-activate-spec-btn"
             onClick={() => onNavigate('activation')}
             className={`px-4 py-2.5 rounded-full text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm ${
               userProfile.isBlocked
@@ -191,22 +320,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         )}
 
-        {/* Admin Announcement / Propaganda / Message Zone */}
+        {/* Admin Announcement / Notification / Message Zone */}
         {!userProfile.isBlocked && activeAnnouncement ? (
-          <div className="bg-gradient-to-br from-blue-50/95 via-indigo-50/70 to-blue-50/95 rounded-2xl p-5 border border-blue-200/90 shadow-sm space-y-4 relative overflow-hidden">
+          <div
+            id="profile-active-announcement-card"
+            className={`rounded-2xl p-5 border shadow-sm space-y-4 relative overflow-hidden transition-all ${
+              isCurrentUnread
+                ? 'bg-gradient-to-br from-blue-50/95 via-indigo-50/80 to-blue-50/95 border-blue-300 ring-2 ring-blue-400/30'
+                : 'bg-slate-50/80 border-slate-200'
+            }`}
+          >
             {/* Header / Badge row */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-600 text-white rounded-lg text-[11px] font-black tracking-wide uppercase shadow-xs">
+                <span
+                  className={`inline-flex items-center gap-1.5 px-3 py-1 text-white rounded-lg text-[11px] font-black tracking-wide uppercase shadow-xs ${
+                    isCurrentUnread ? 'bg-blue-600' : 'bg-slate-700'
+                  }`}
+                >
                   <span className="material-symbols-outlined text-sm">
                     {activeAnnouncement.type === 'video' ? 'smart_display' : activeAnnouncement.type === 'image' ? 'photo_camera' : 'campaign'}
                   </span>
                   <span>{activeAnnouncement.badge || 'COMUNICADO ADM'}</span>
                 </span>
 
+                {isCurrentUnread ? (
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-red-100 text-red-700 rounded-full text-[10px] font-black border border-red-200 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-red-600"></span>
+                    NÃO LIDA
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full text-[10px] font-bold border border-emerald-200">
+                    <span className="material-symbols-outlined text-[12px]">done</span>
+                    Lida
+                  </span>
+                )}
+
                 {userAnnouncements.length > 1 && (
-                  <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-blue-200 text-[11px] font-bold text-blue-700">
+                  <div className="flex items-center gap-1 bg-white px-2 py-0.5 rounded-md border border-slate-200 text-[11px] font-bold text-blue-700 shadow-2xs">
                     <button
+                      type="button"
                       onClick={() => setCurrentAnnIndex((prev) => (prev > 0 ? prev - 1 : userAnnouncements.length - 1))}
                       className="hover:text-blue-950 px-1 cursor-pointer"
                       title="Anterior"
@@ -215,6 +368,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     </button>
                     <span>{currentAnnIndex + 1} de {userAnnouncements.length}</span>
                     <button
+                      type="button"
                       onClick={() => setCurrentAnnIndex((prev) => (prev < userAnnouncements.length - 1 ? prev + 1 : 0))}
                       className="hover:text-blue-950 px-1 cursor-pointer"
                       title="Próximo"
@@ -225,15 +379,35 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 )}
               </div>
 
-              {activeAnnouncement.dismissible && (
+              <div className="flex items-center gap-1.5">
+                {/* Mark as read / unread toggle button */}
                 <button
-                  onClick={() => handleDismissAnnouncement(activeAnnouncement.id)}
-                  className="w-7 h-7 rounded-lg bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
-                  title="Fechar mensagem"
+                  type="button"
+                  onClick={() => handleToggleReadStatus(activeAnnouncement.id)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
+                    isCurrentUnread
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-xs'
+                      : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                  }`}
+                  title={isCurrentUnread ? 'Marcar como lida' : 'Marcar como não lida'}
                 >
-                  <span className="material-symbols-outlined text-sm">close</span>
+                  <span className="material-symbols-outlined text-sm">
+                    {isCurrentUnread ? 'check_circle' : 'mark_chat_unread'}
+                  </span>
+                  <span>{isCurrentUnread ? 'Marcar como lida' : 'Lida'}</span>
                 </button>
-              )}
+
+                {activeAnnouncement.dismissible && (
+                  <button
+                    type="button"
+                    onClick={() => handleDismissAnnouncement(activeAnnouncement.id)}
+                    className="w-7 h-7 rounded-lg bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
+                    title="Fechar mensagem"
+                  >
+                    <span className="material-symbols-outlined text-sm">close</span>
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Title & Body */}
@@ -288,7 +462,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-1">
               {activeAnnouncement.actionText ? (
                 <button
-                  onClick={() => handleActionClick(activeAnnouncement.actionUrl)}
+                  type="button"
+                  onClick={() => {
+                    if (isCurrentUnread) handleToggleReadStatus(activeAnnouncement.id);
+                    handleActionClick(activeAnnouncement.actionUrl);
+                  }}
                   className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <span>{activeAnnouncement.actionText}</span>
@@ -296,7 +474,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </button>
               ) : (
                 <button
-                  onClick={() => onNavigate('activation')}
+                  type="button"
+                  onClick={() => {
+                    if (isCurrentUnread) handleToggleReadStatus(activeAnnouncement.id);
+                    onNavigate('activation');
+                  }}
                   className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 active:scale-95 text-white font-bold px-5 py-2.5 rounded-xl text-xs shadow-md transition-all cursor-pointer flex items-center justify-center gap-1.5"
                 >
                   <span>Ativar Especialidade</span>
@@ -432,3 +614,4 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     </div>
   );
 };
+
