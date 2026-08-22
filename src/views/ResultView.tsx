@@ -604,41 +604,44 @@ Acabei de concluir um teste de preparação para o Concurso Público na platafor
         <div className="md:col-span-8 bg-white rounded-3xl p-6 md:p-8 flex flex-col items-center justify-center text-center shadow-[0_4px_32px_rgba(0,0,0,0.04)] relative overflow-hidden border border-slate-100">
           <div className="absolute top-0 left-0 w-full h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-400" />
 
-          {/* Facebook Challenge Top Badge */}
-          <div className="w-full mb-4">
+          {/* Facebook Challenge Top Banner */}
+          <div className="w-full mb-6">
             <button
               onClick={handleDirectFacebookShare}
               disabled={isGeneratingImage}
-              className="w-full bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 text-white rounded-2xl p-3.5 shadow-md transition-all active:scale-98 cursor-pointer flex items-center justify-between gap-2 text-left group"
+              className="w-full bg-gradient-to-r from-[#1877F2] via-blue-700 to-indigo-800 hover:from-blue-700 hover:to-indigo-900 text-white rounded-2xl p-4 md:p-5 shadow-lg transition-all active:scale-98 cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-left group border border-blue-400/30"
             >
-              <div className="flex items-center gap-2.5 min-w-0">
-                <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+              <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+                <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-sm flex items-center justify-center shrink-0 shadow-inner">
                   {isGeneratingImage ? (
-                    <span className="material-symbols-outlined text-white text-base animate-spin">refresh</span>
+                    <span className="material-symbols-outlined text-white text-xl animate-spin">refresh</span>
                   ) : (
-                    <svg className="w-4 h-4 fill-white" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 fill-white" viewBox="0 0 24 24">
                       <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                     </svg>
                   )}
                 </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-1.5 py-0.2 rounded uppercase">
-                      Desafio
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className="bg-amber-400 text-slate-950 text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-xs">
+                      DESAFIO 100 LIKES
                     </span>
-                    <span className="text-xs md:text-sm font-black text-white">
-                      Partilhar resultado se tiver 100 likes, ganha 1 inscrição grátis
+                    <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      Exclusivo Facebook
                     </span>
                   </div>
-                  <p className="text-[11px] text-blue-100 truncate">
-                    {isGeneratingImage ? 'A gerar imagem oficial do resumo...' : 'Gera a imagem de desempenho e abre o Facebook para publicar'}
+                  <h4 className="text-sm md:text-base font-black text-white leading-snug">
+                    Partilhar resultado se tiver 100 likes, ganha 1 inscrição grátis
+                  </h4>
+                  <p className="text-xs text-blue-100 mt-0.5">
+                    {isGeneratingImage ? 'A renderizar imagem oficial do seu resultado...' : 'Gera o cartão de notas oficial e abre o Facebook para publicar'}
                   </p>
                 </div>
               </div>
 
-              <div className="shrink-0 bg-white text-blue-900 text-[11px] font-black px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1 group-hover:bg-blue-50 transition-colors">
-                <span>{isGeneratingImage ? 'A gerar...' : 'Partilhar'}</span>
-                <span className="material-symbols-outlined text-xs">
+              <div className="shrink-0 self-end sm:self-center bg-white text-blue-900 font-black text-xs px-4 py-2 rounded-xl shadow-md flex items-center gap-1.5 group-hover:bg-blue-50 group-hover:scale-105 transition-all">
+                <span>{isGeneratingImage ? 'A gerar...' : 'Partilhar no Facebook'}</span>
+                <span className="material-symbols-outlined text-sm">
                   {isGeneratingImage ? 'hourglass_top' : 'arrow_forward'}
                 </span>
               </div>
@@ -694,7 +697,7 @@ Acabei de concluir um teste de preparação para o Concurso Público na platafor
             <button
               onClick={handleDirectFacebookShare}
               disabled={isGeneratingImage}
-              className="w-full sm:w-auto px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm text-center"
+              className="w-full sm:w-auto px-6 py-3.5 bg-[#1877F2] hover:bg-[#166fe5] text-white rounded-xl font-black text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm text-center"
             >
               {isGeneratingImage ? (
                 <span className="material-symbols-outlined text-sm animate-spin">refresh</span>
@@ -703,12 +706,12 @@ Acabei de concluir um teste de preparação para o Concurso Público na platafor
                   <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
                 </svg>
               )}
-              <span>{isGeneratingImage ? 'A gerar imagem...' : 'Partilhar resultado se tiver 100 likes, ganha 1 inscrição grátis'}</span>
+              <span>{isGeneratingImage ? 'A gerar imagem...' : 'Partilhar no Facebook (Desafio 100 Likes)'}</span>
             </button>
 
             <button
               onClick={() => setIsShareModalOpen(true)}
-              className="w-full sm:w-auto px-4 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+              className="w-full sm:w-auto px-4 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
             >
               <span className="material-symbols-outlined text-sm">info</span>
               <span>Regras do Desafio</span>

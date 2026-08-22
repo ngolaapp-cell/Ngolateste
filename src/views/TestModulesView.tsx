@@ -216,9 +216,9 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
 
       {/* Grid of Test Modules */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredModules.map((test) => (
+        {filteredModules.map((test, index) => (
           <div
-            key={test.id}
+            key={`mod-item-${test.id}-${index}`}
             onClick={() => handleModuleClick(test)}
             className={`rounded-2xl p-5 shadow-sm border transition-all group cursor-pointer block relative ${
               unlocked
