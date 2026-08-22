@@ -633,6 +633,134 @@ app.get("/api/supabase/status", async (req, res) => {
   });
 });
 
+// Admin Users List from Supabase Database
+app.get("/api/admin/users", async (req, res) => {
+  const dynamicUrl = sanitizeUrl((req.query.url as string) || supabaseUrl);
+  const dynamicKey = ((req.query.key as string) || supabaseKey).trim().replace(/^["']|["']$/g, "");
+  const client = (dynamicUrl && dynamicKey) ? createClient(dynamicUrl, dynamicKey) : serverSupabase;
+
+  if (!client) {
+    return res.json({ success: true, count: 0, users: [], message: "Supabase não configurado." });
+  }
+
+  try {
+    const userMap = new Map<string, any>();
+
+    // 1. Query 'usuarios' table
+    try {
+      const { data: uData, error: uErr } = await client
+        .from("usuarios")
+        .select("*")
+        .order("updated_at", { ascending: false });
+
+      if (!uErr && Array.isArray(uData)) {
+        for (const row of uData) {
+          const phone = (row.phone || row.telefone || "").trim();
+          if (phone) {
+            userMap.set(phone, {
+              name: row.name || row.nome || "Candidato Ngola",
+              phone,
+              email: row.email || "",
+              isActivated: Boolean(row.is_activated ?? row.isActivated ?? false),
+              activationCode: row.activation_code || row.activationCode || null,
+              expiresAt: row.expires_at || row.expiresAt || null,
+              activatedSpecializations: row.activated_specializations || row.activatedSpecializations || [],
+              dailyGoalQuestions: row.daily_goal_questions ?? 30,
+              dailyCompletedQuestions: row.daily_completed_questions ?? 0,
+              totalTestsTaken: row.total_tests_taken ?? 0,
+              averageScore: Number(row.average_score ?? 0),
+              isBlocked: Boolean(row.is_blocked ?? row.isBlocked ?? false),
+              blockedReason: row.blocked_reason || row.blockedReason || undefined,
+              blockedAt: row.blocked_at || row.blockedAt || undefined,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 2. Query 'profiles' table for any additional users
+    try {
+      const { data: pData, error: pErr } = await client
+        .from("profiles")
+        .select("*")
+        .order("updated_at", { ascending: false });
+
+      if (!pErr && Array.isArray(pData)) {
+        for (const row of pData) {
+          const phone = (row.phone || row.telefone || "").trim();
+          if (phone && !userMap.has(phone)) {
+            userMap.set(phone, {
+              name: row.name || row.nome || "Candidato Ngola",
+              phone,
+              email: row.email || "",
+              isActivated: Boolean(row.is_activated ?? row.isActivated ?? false),
+              activationCode: row.activation_code || row.activationCode || null,
+              expiresAt: row.expires_at || row.expiresAt || null,
+              activatedSpecializations: row.activated_specializations || row.activatedSpecializations || [],
+              dailyGoalQuestions: row.daily_goal_questions ?? 30,
+              dailyCompletedQuestions: row.daily_completed_questions ?? 0,
+              totalTestsTaken: row.total_tests_taken ?? 0,
+              averageScore: Number(row.average_score ?? 0),
+              isBlocked: Boolean(row.is_blocked ?? row.isBlocked ?? false),
+              blockedReason: row.blocked_reason || row.blockedReason || undefined,
+              blockedAt: row.blocked_at || row.blockedAt || undefined,
+            });
+          }
+        }
+      }
+    } catch (_) {}
+
+    const users = Array.from(userMap.values());
+    return res.json({
+      success: true,
+      count: users.length,
+      users,
+    });
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: err?.message || String(err), users: [] });
+  }
+});
+
+// Admin Delete User from Supabase Database
+app.post("/api/admin/delete-user", async (req, res) => {
+  const { phone, url, key } = req.body;
+  if (!phone || typeof phone !== "string" || !phone.trim()) {
+    return res.status(400).json({ success: false, message: "Número de telefone do usuário obrigatório." });
+  }
+
+  const cleanPhone = phone.trim();
+  const dynamicUrl = sanitizeUrl(url || supabaseUrl);
+  const dynamicKey = (key || supabaseKey).trim().replace(/^["']|["']$/g, "");
+  const client = (dynamicUrl && dynamicKey) ? createClient(dynamicUrl, dynamicKey) : serverSupabase;
+
+  if (client) {
+    try {
+      // 1. Delete from usuarios
+      await client.from("usuarios").delete().eq("phone", cleanPhone);
+      await client.from("usuarios").delete().eq("telefone", cleanPhone);
+
+      // 2. Delete from profiles
+      await client.from("profiles").delete().eq("phone", cleanPhone);
+      await client.from("profiles").delete().eq("telefone", cleanPhone);
+
+      // 3. Unlink from codigos_ativacao
+      try {
+        await client
+          .from("codigos_ativacao")
+          .update({ is_used: false, used_by_phone: null, used_by_name: null, used_at: null })
+          .eq("used_by_phone", cleanPhone);
+      } catch (_) {}
+    } catch (dbErr: any) {
+      console.warn("Notice deleting user in Supabase:", dbErr);
+    }
+  }
+
+  return res.json({
+    success: true,
+    message: `Usuário ${cleanPhone} eliminado com sucesso do banco de dados e do sistema.`,
+  });
+});
+
 // Supabase Save Module Proxy Endpoint
 app.post("/api/supabase/save-module", async (req, res) => {
   const { module, url, key } = req.body;

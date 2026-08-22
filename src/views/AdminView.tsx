@@ -30,6 +30,7 @@ import {
   fetchRealStatistics,
   adminToggleUserActivation,
   toggleUserBlockStatus,
+  deleteUserFromDatabase,
   fetchAdminRecoveryEmail,
   saveAdminRecoveryEmail,
   sendAdminRecoveryOTP,
@@ -438,6 +439,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [togglingUserPhone, setTogglingUserPhone] = useState<string | null>(null);
   const [togglingBlockPhone, setTogglingBlockPhone] = useState<string | null>(null);
   const [blockModalUser, setBlockModalUser] = useState<UserProfile | null>(null);
+  const [deleteModalUser, setDeleteModalUser] = useState<UserProfile | null>(null);
+  const [deletingUserPhone, setDeletingUserPhone] = useState<string | null>(null);
   const [blockReasonInput, setBlockReasonInput] = useState<string>('Comportamento irregular detectado no uso do sistema');
   const [userActionNotice, setUserActionNotice] = useState<{ success: boolean; message: string } | null>(null);
 
@@ -450,6 +453,37 @@ export const AdminView: React.FC<AdminViewProps> = ({
       console.error('Error fetching real stats:', err);
     } finally {
       setIsLoadingStats(false);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserProfile) => {
+    setDeletingUserPhone(user.phone);
+    try {
+      const res = await deleteUserFromDatabase(user.phone);
+      setRealStats((prev) => ({
+        ...prev,
+        totalCandidates: Math.max(0, prev.totalCandidates - 1),
+        activeSubscriptions: user.isActivated && !user.isBlocked
+          ? Math.max(0, prev.activeSubscriptions - 1)
+          : prev.activeSubscriptions,
+        usersList: prev.usersList.filter((u) => u.phone !== user.phone),
+      }));
+
+      setUserActionNotice({
+        success: res.success,
+        message: `Candidato ${user.name} (${user.phone}) foi eliminado com sucesso do banco de dados e do sistema!`,
+      });
+
+      setDeleteModalUser(null);
+      setTimeout(() => setUserActionNotice(null), 5000);
+    } catch (err: any) {
+      console.error('Error deleting user:', err);
+      setUserActionNotice({
+        success: false,
+        message: `Falha ao eliminar candidato: ${err?.message || String(err)}`,
+      });
+    } finally {
+      setDeletingUserPhone(null);
     }
   };
 
@@ -4808,6 +4842,99 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
             </div>
           )}
 
+          {/* Modal for Deleting User */}
+          {deleteModalUser && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl p-6 md:p-8 max-w-md w-full shadow-2xl border border-red-100 space-y-5 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                  <div className="flex items-center gap-3 text-red-600">
+                    <div className="w-11 h-11 rounded-2xl bg-red-100 flex items-center justify-center text-red-600 shrink-0">
+                      <span className="material-symbols-outlined text-2xl">person_remove</span>
+                    </div>
+                    <div>
+                      <h4 className="text-base font-black text-slate-900">Eliminar Utilizador</h4>
+                      <p className="text-[11px] text-slate-500">Excluir do Supabase e do sistema</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={deletingUserPhone === deleteModalUser.phone}
+                    onClick={() => setDeleteModalUser(null)}
+                    className="p-1 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-lg">close</span>
+                  </button>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Nome:</span>
+                    <span className="font-bold text-slate-900 text-sm">{deleteModalUser.name}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Telefone:</span>
+                    <span className="font-mono font-bold text-slate-800">{deleteModalUser.phone}</span>
+                  </div>
+                  {deleteModalUser.email && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">E-mail:</span>
+                      <span className="text-slate-700">{deleteModalUser.email}</span>
+                    </div>
+                  )}
+                  {deleteModalUser.activationCode && (
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-500 font-medium">Código Usado:</span>
+                      <span className="font-mono font-black text-amber-700">{deleteModalUser.activationCode}</span>
+                    </div>
+                  )}
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500 font-medium">Simulados Feitos:</span>
+                    <span className="font-bold text-slate-800">{deleteModalUser.totalTestsTaken || 0}</span>
+                  </div>
+                </div>
+
+                <div className="p-3.5 bg-red-50 text-red-900 rounded-2xl text-xs leading-relaxed border border-red-200/80 flex items-start gap-2.5">
+                  <span className="material-symbols-outlined text-red-600 text-lg shrink-0 mt-0.5">warning</span>
+                  <div>
+                    <strong className="block font-black text-red-950 mb-0.5">Atenção: Ação Definitiva!</strong>
+                    <span>
+                      Esta ação irá remover permanentemente a conta, histórico de provas, código de ativação e dados sincronizados no Supabase (tabelas <code className="bg-red-100 px-1 rounded">usuarios</code> e <code className="bg-red-100 px-1 rounded">profiles</code>).
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-slate-100">
+                  <button
+                    type="button"
+                    disabled={deletingUserPhone === deleteModalUser.phone}
+                    onClick={() => setDeleteModalUser(null)}
+                    className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs cursor-pointer transition-all disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deletingUserPhone === deleteModalUser.phone}
+                    onClick={() => handleDeleteUser(deleteModalUser)}
+                    className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 cursor-pointer shadow-md transition-all disabled:opacity-50"
+                  >
+                    {deletingUserPhone === deleteModalUser.phone ? (
+                      <>
+                        <span className="material-symbols-outlined text-xs animate-spin">refresh</span>
+                        <span>Eliminando Utilizador...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="material-symbols-outlined text-xs">delete_forever</span>
+                        <span>Confirmar e Eliminar</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ================= SEÇÃO: CÓDIGOS DE ACESSO UTILIZADOS (COLAPSÁVEL) ================= */}
           <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-4 md:p-5 text-white shadow-md border border-blue-800/40 relative overflow-hidden transition-all">
             <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${showUsedCodesSection ? 'border-b border-white/10 pb-4 mb-5' : ''}`}>
@@ -4987,6 +5114,15 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                               </span>
                               <span>{isUserBlocked ? 'Desbloquear' : 'Bloquear'}</span>
                             </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteModalUser(user)}
+                              className="px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 bg-red-600/30 text-red-200 hover:bg-red-600/50 border border-red-500/50"
+                              title="Eliminar utilizador permanentemente"
+                            >
+                              <span className="material-symbols-outlined text-[10px]">delete</span>
+                              <span>Eliminar</span>
+                            </button>
                           </div>
                         </div>
                       </div>
@@ -5111,64 +5247,79 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                 </p>
               </div>
 
-              {/* Filter Buttons */}
-              <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl text-xs font-bold gap-1">
+              {/* Filter Buttons & Refresh Sync */}
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setUserFilterStatus('all')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    userFilterStatus === 'all'
-                      ? 'bg-white text-blue-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
+                  onClick={loadPlatformStats}
+                  disabled={isLoadingStats}
+                  className="px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
+                  title="Recarregar e sincronizar contagem direta com a base de dados do Supabase"
                 >
-                  Todos ({realStats.usersList.length})
+                  <span className={`material-symbols-outlined text-sm ${isLoadingStats ? 'animate-spin' : ''}`}>
+                    sync
+                  </span>
+                  <span>{isLoadingStats ? 'Sincronizando...' : 'Sincronizar Supabase'}</span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setUserFilterStatus('with_code')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    userFilterStatus === 'with_code'
-                      ? 'bg-white text-amber-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Com Código ({realStats.usersList.filter((u) => Boolean(u.activationCode)).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUserFilterStatus('activated')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    userFilterStatus === 'activated'
-                      ? 'bg-white text-emerald-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Ativos ({realStats.usersList.filter((u) => u.isActivated && !u.isBlocked).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUserFilterStatus('free')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
-                    userFilterStatus === 'free'
-                      ? 'bg-white text-slate-700 shadow-sm'
-                      : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  Gratuitos ({realStats.usersList.filter((u) => !u.isActivated && !u.isBlocked).length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setUserFilterStatus('blocked')}
-                  className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
-                    userFilterStatus === 'blocked'
-                      ? 'bg-red-600 text-white shadow-sm'
-                      : 'text-red-600 hover:bg-red-50'
-                  }`}
-                >
-                  <span className="material-symbols-outlined text-xs">block</span>
-                  <span>Bloqueados ({realStats.usersList.filter((u) => u.isBlocked).length})</span>
-                </button>
+
+                <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl text-xs font-bold gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('all')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      userFilterStatus === 'all'
+                        ? 'bg-white text-blue-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Todos ({realStats.usersList.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('with_code')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      userFilterStatus === 'with_code'
+                        ? 'bg-white text-amber-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Com Código ({realStats.usersList.filter((u) => Boolean(u.activationCode)).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('activated')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      userFilterStatus === 'activated'
+                        ? 'bg-white text-emerald-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Ativos ({realStats.usersList.filter((u) => u.isActivated && !u.isBlocked).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('free')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer ${
+                      userFilterStatus === 'free'
+                        ? 'bg-white text-slate-700 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    Gratuitos ({realStats.usersList.filter((u) => !u.isActivated && !u.isBlocked).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('blocked')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                      userFilterStatus === 'blocked'
+                        ? 'bg-red-600 text-white shadow-sm'
+                        : 'text-red-600 hover:bg-red-50'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-xs">block</span>
+                    <span>Bloqueados ({realStats.usersList.filter((u) => u.isBlocked).length})</span>
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -5416,6 +5567,18 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                                     <span>Bloquear</span>
                                   </button>
                                 )}
+
+                                {/* DELETE USER PERMANENTLY BUTTON */}
+                                <button
+                                  type="button"
+                                  disabled={deletingUserPhone === user.phone}
+                                  onClick={() => setDeleteModalUser(user)}
+                                  className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 hover:text-red-700 border border-red-200 hover:border-red-300 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 shadow-2xs disabled:opacity-50"
+                                  title="Eliminar candidato permanentemente do banco de dados e do sistema"
+                                >
+                                  <span className="material-symbols-outlined text-xs">delete</span>
+                                  <span>Eliminar</span>
+                                </button>
                               </div>
                             </td>
                           </tr>

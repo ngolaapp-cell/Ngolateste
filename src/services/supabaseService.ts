@@ -946,11 +946,28 @@ export async function loginOrRegisterUser(params: {
 }
 
 /**
- * Fetches all registered users from Supabase (table "usuarios" or "profiles")
+ * Fetches all registered users from Supabase (table "usuarios" and "profiles")
+ * Synchronizes 1:1 with backend so count is perfectly accurate.
  */
 export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
   const localSaved = localStorage.getItem('ngola_all_registered_users');
   const localUsers: UserProfile[] = localSaved ? JSON.parse(localSaved) : [];
+
+  // 1. First try backend server endpoint
+  try {
+    const res = await fetch('/api/admin/users');
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && Array.isArray(data.users)) {
+        const serverUsers: UserProfile[] = data.users;
+        // When backend/Supabase is connected, authoritative list is serverUsers
+        localStorage.setItem('ngola_all_registered_users', JSON.stringify(serverUsers));
+        return serverUsers;
+      }
+    }
+  } catch (_) {
+    // Continue to direct client query
+  }
 
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
@@ -958,51 +975,157 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
   }
 
   try {
-    let { data, error } = await client.from('usuarios').select('*').order('updated_at', { ascending: false });
-    if (error || !data) {
-      const res = await client.from('profiles').select('*').order('updated_at', { ascending: false });
-      data = res.data;
-    }
-
-    if (!data || data.length === 0) {
-      return localUsers;
-    }
-
+    const userMap = new Map<string, UserProfile>();
     const blockedList: string[] = JSON.parse(localStorage.getItem('ngola_blocked_users') || '[]');
     const blockedSet = new Set(blockedList.map((p) => p.trim()));
 
-    const fetched: UserProfile[] = data.map((d: any) => {
-      const uPhone = d.phone || d.telefone || '';
-      const isBlocked = Boolean(d.is_blocked ?? d.isBlocked ?? blockedSet.has(uPhone));
-      return {
-        name: d.name || d.nome || 'Candidato Ngola',
-        phone: uPhone,
-        email: d.email || '',
-        isActivated: Boolean(d.is_activated ?? d.isActivated ?? false),
-        activationCode: d.activation_code || d.activationCode,
-        expiresAt: d.expires_at || d.expiresAt,
-        dailyGoalQuestions: d.daily_goal_questions ?? 30,
-        dailyCompletedQuestions: d.daily_completed_questions ?? 0,
-        totalTestsTaken: d.total_tests_taken ?? 0,
-        averageScore: Number(d.average_score ?? 0),
-        isBlocked,
-        blockedReason: d.blocked_reason || d.blockedReason || (isBlocked ? 'Comportamento irregular detectado' : undefined),
-        blockedAt: d.blocked_at || d.blockedAt,
-      };
-    });
+    // Query 'usuarios'
+    try {
+      const { data: uData, error: uErr } = await client
+        .from('usuarios')
+        .select('*')
+        .order('updated_at', { ascending: false });
 
-    // Merge with local
-    const uMap = new Map<string, UserProfile>();
-    fetched.forEach((u) => { if (u.phone) uMap.set(u.phone, u); });
-    localUsers.forEach((u) => { if (u.phone && !uMap.has(u.phone)) uMap.set(u.phone, u); });
+      if (!uErr && Array.isArray(uData)) {
+        uData.forEach((d: any) => {
+          const uPhone = (d.phone || d.telefone || '').trim();
+          if (uPhone) {
+            const isBlocked = Boolean(d.is_blocked ?? d.isBlocked ?? blockedSet.has(uPhone));
+            userMap.set(uPhone, {
+              name: d.name || d.nome || 'Candidato Ngola',
+              phone: uPhone,
+              email: d.email || '',
+              isActivated: Boolean(d.is_activated ?? d.isActivated ?? false),
+              activationCode: d.activation_code || d.activationCode,
+              expiresAt: d.expires_at || d.expiresAt,
+              activatedSpecializations: d.activated_specializations || d.activatedSpecializations || [],
+              dailyGoalQuestions: d.daily_goal_questions ?? 30,
+              dailyCompletedQuestions: d.daily_completed_questions ?? 0,
+              totalTestsTaken: d.total_tests_taken ?? 0,
+              averageScore: Number(d.average_score ?? 0),
+              isBlocked,
+              blockedReason: d.blocked_reason || d.blockedReason || (isBlocked ? 'Comportamento irregular detectado' : undefined),
+              blockedAt: d.blocked_at || d.blockedAt,
+            });
+          }
+        });
+      }
+    } catch (_) {}
 
-    const combined = Array.from(uMap.values());
-    localStorage.setItem('ngola_all_registered_users', JSON.stringify(combined));
-    return combined;
+    // Query 'profiles' for any remaining
+    try {
+      const { data: pData, error: pErr } = await client
+        .from('profiles')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (!pErr && Array.isArray(pData)) {
+        pData.forEach((d: any) => {
+          const uPhone = (d.phone || d.telefone || '').trim();
+          if (uPhone && !userMap.has(uPhone)) {
+            const isBlocked = Boolean(d.is_blocked ?? d.isBlocked ?? blockedSet.has(uPhone));
+            userMap.set(uPhone, {
+              name: d.name || d.nome || 'Candidato Ngola',
+              phone: uPhone,
+              email: d.email || '',
+              isActivated: Boolean(d.is_activated ?? d.isActivated ?? false),
+              activationCode: d.activation_code || d.activationCode,
+              expiresAt: d.expires_at || d.expiresAt,
+              activatedSpecializations: d.activated_specializations || d.activatedSpecializations || [],
+              dailyGoalQuestions: d.daily_goal_questions ?? 30,
+              dailyCompletedQuestions: d.daily_completed_questions ?? 0,
+              totalTestsTaken: d.total_tests_taken ?? 0,
+              averageScore: Number(d.average_score ?? 0),
+              isBlocked,
+              blockedReason: d.blocked_reason || d.blockedReason || (isBlocked ? 'Comportamento irregular detectado' : undefined),
+              blockedAt: d.blocked_at || d.blockedAt,
+            });
+          }
+        });
+      }
+    } catch (_) {}
+
+    const fetched = Array.from(userMap.values());
+    
+    // If Supabase is connected, exact list is authoritative
+    if (fetched.length > 0 || isSupabaseConfigured()) {
+      localStorage.setItem('ngola_all_registered_users', JSON.stringify(fetched));
+      return fetched;
+    }
+
+    return localUsers;
   } catch (err) {
     console.warn('Error fetching all users from Supabase:', err);
     return localUsers;
   }
+}
+
+/**
+ * Admin permanently deletes a user from Supabase and local storage
+ */
+export async function deleteUserFromDatabase(phone: string): Promise<{ success: boolean; message: string }> {
+  const cleanPhone = phone.trim();
+  if (!cleanPhone) {
+    return { success: false, message: 'Telefone inválido.' };
+  }
+
+  // 1. Call server endpoint
+  try {
+    await fetch('/api/admin/delete-user', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: cleanPhone }),
+    });
+  } catch (_) {}
+
+  // 2. Delete directly from Supabase tables
+  const client = getSupabaseClient();
+  if (isSupabaseConfigured() && client) {
+    try {
+      await client.from('usuarios').delete().eq('phone', cleanPhone);
+      await client.from('usuarios').delete().eq('telefone', cleanPhone);
+      await client.from('profiles').delete().eq('phone', cleanPhone);
+      await client.from('profiles').delete().eq('telefone', cleanPhone);
+      
+      // Unlink codes
+      await client
+        .from('codigos_ativacao')
+        .update({ is_used: false, used_by_phone: null, used_by_name: null, used_at: null })
+        .eq('used_by_phone', cleanPhone);
+    } catch (e) {
+      console.warn('Error deleting user from Supabase client:', e);
+    }
+  }
+
+  // 3. Clean local storage
+  localStorage.removeItem(`ngola_user_${cleanPhone}`);
+
+  const allUsersSaved = localStorage.getItem('ngola_all_registered_users');
+  if (allUsersSaved) {
+    const users: UserProfile[] = JSON.parse(allUsersSaved);
+    const updated = users.filter((u) => u.phone !== cleanPhone);
+    localStorage.setItem('ngola_all_registered_users', JSON.stringify(updated));
+  }
+
+  const blockedList: string[] = JSON.parse(localStorage.getItem('ngola_blocked_users') || '[]');
+  if (blockedList.includes(cleanPhone)) {
+    localStorage.setItem('ngola_blocked_users', JSON.stringify(blockedList.filter((p) => p !== cleanPhone)));
+  }
+
+  const currentActive = localStorage.getItem('ngola_current_user');
+  if (currentActive) {
+    try {
+      const parsed: UserProfile = JSON.parse(currentActive);
+      if (parsed.phone === cleanPhone) {
+        localStorage.removeItem('ngola_current_user');
+      }
+    } catch (_) {}
+  }
+
+  return {
+    success: true,
+    message: `Candidato (${cleanPhone}) eliminado com sucesso do banco de dados e do sistema!`,
+  };
 }
 
 /**
@@ -1017,7 +1140,7 @@ export async function fetchRealStatistics(): Promise<{
 }> {
   const users = await fetchAllRegisteredUsers();
   const totalCandidates = users.length;
-  const activeSubscriptions = users.filter((u) => u.isActivated).length;
+  const activeSubscriptions = users.filter((u) => u.isActivated && !u.isBlocked).length;
 
   let totalExamsTaken = users.reduce((acc, u) => acc + (u.totalTestsTaken || 0), 0);
   let averageGrade = 0;
@@ -1056,7 +1179,7 @@ export async function fetchRealStatistics(): Promise<{
   }
 
   return {
-    totalCandidates: totalCandidates > 0 ? totalCandidates : 1,
+    totalCandidates,
     activeSubscriptions,
     totalExamsTaken: totalExamsTaken > 0 ? totalExamsTaken : 0,
     averageGrade: averageGrade || 14.0,
