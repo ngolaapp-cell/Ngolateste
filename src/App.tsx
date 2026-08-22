@@ -41,6 +41,7 @@ import { LoginView } from './views/LoginView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
 import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from './utils/accessControl';
+import { updateAppBadge, sendNativeNotification } from './utils/badgeManager';
 
 export function App() {
   // Check if a registered user session exists
@@ -256,6 +257,29 @@ export function App() {
   const unreadAnnouncementsCount = useMemo(() => {
     return userAnnouncements.filter((a) => !readAnnouncementIds.includes(a.id)).length;
   }, [userAnnouncements, readAnnouncementIds]);
+
+  // Synchronize native App Icon Badge, Favicon badge, and title with unread notifications count
+  useEffect(() => {
+    updateAppBadge(unreadAnnouncementsCount);
+  }, [unreadAnnouncementsCount]);
+
+  // Trigger system notification when a new unread announcement is detected
+  useEffect(() => {
+    if (unreadAnnouncementsCount > 0 && userAnnouncements.length > 0) {
+      const firstUnread = userAnnouncements.find((a) => !readAnnouncementIds.includes(a.id));
+      if (firstUnread) {
+        const lastNotifiedId = sessionStorage.getItem('ngola_last_notified_ann_id');
+        if (lastNotifiedId !== firstUnread.id) {
+          sessionStorage.setItem('ngola_last_notified_ann_id', firstUnread.id);
+          sendNativeNotification(
+            firstUnread.title || 'NgolaTeste: Nova mensagem',
+            firstUnread.message || 'Você recebeu uma nova mensagem do Administrador.',
+            firstUnread.imageUrl || '/official_logo.png'
+          );
+        }
+      }
+    }
+  }, [unreadAnnouncementsCount, userAnnouncements, readAnnouncementIds]);
 
   const handleMarkAnnouncementAsRead = useCallback((id: string) => {
     setReadAnnouncementIds((prev) => {

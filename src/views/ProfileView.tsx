@@ -188,20 +188,42 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   : `Você tem ${totalUnreadCount} novas notificações do Administrador`}
               </h3>
               <p className="text-xs text-white/80">
-                Consulte os comunicados oficiais e orientações abaixo.
+                Consulte os comunicados oficiais e orientações abaixo. O ícone do app na tela do seu telefone agora exibe o contador com o número ({totalUnreadCount}).
               </p>
             </div>
           </div>
 
-          <button
-            id="mark-all-read-btn"
-            type="button"
-            onClick={handleMarkAllRead}
-            className="w-full sm:w-auto px-3.5 py-1.5 bg-white text-red-700 hover:bg-red-50 text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
-          >
-            <span className="material-symbols-outlined text-sm">done_all</span>
-            <span>Marcar Todas como Lidas</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            {typeof window !== 'undefined' && 'Notification' in window && Notification.permission !== 'granted' && (
+              <button
+                id="enable-device-notifications-btn"
+                type="button"
+                onClick={async () => {
+                  try {
+                    const res = await Notification.requestPermission();
+                    if (res === 'granted') {
+                      alert('Notificações no telefone e no ícone do aplicativo ativadas com sucesso!');
+                    }
+                  } catch (_) {}
+                }}
+                className="w-full sm:w-auto px-3 py-1.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-xl transition-all cursor-pointer flex items-center justify-center gap-1"
+                title="Ativar notificações no telefone"
+              >
+                <span className="material-symbols-outlined text-sm">notifications</span>
+                <span>Permitir Alertas</span>
+              </button>
+            )}
+
+            <button
+              id="mark-all-read-btn"
+              type="button"
+              onClick={handleMarkAllRead}
+              className="w-full sm:w-auto px-3.5 py-1.5 bg-white text-red-700 hover:bg-red-50 text-xs font-black rounded-xl transition-all shadow-xs cursor-pointer flex items-center justify-center gap-1.5 flex-shrink-0"
+            >
+              <span className="material-symbols-outlined text-sm">done_all</span>
+              <span>Marcar Todas como Lidas</span>
+            </button>
+          </div>
         </div>
       )}
 
