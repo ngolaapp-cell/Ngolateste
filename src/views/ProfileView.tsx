@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, UserProfile, AdminAnnouncement } from '../types';
-import { fetchAdminAnnouncements } from '../services/supabaseService';
+import { fetchAdminAnnouncements, isAnnouncementForUser } from '../services/supabaseService';
 
 interface ProfileViewProps {
   userProfile: UserProfile;
@@ -49,19 +49,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const activeAnnouncementsList = propAnnouncements || localAnnouncements;
   const activeReadIds = propReadIds || localReadIds;
 
-  // Filter announcements addressed to this user (Always persistent, cannot be deleted/dismissed by user)
-  const userAnnouncements = activeAnnouncementsList.filter((a) => {
-    if (!a.active) return false;
-    if (a.targetType === 'all') return true;
-    if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
-      const uPhone = userProfile.phone.trim();
-      const uEmail = (userProfile.email || '').trim().toLowerCase();
-      return a.targetPhones.some(
-        (p) => p.trim() === uPhone || (uEmail && p.trim().toLowerCase() === uEmail)
-      );
-    }
-    return false;
-  });
+  // Filter announcements addressed to this user (Always persistent, normalized phone matching)
+  const userAnnouncements = activeAnnouncementsList.filter((a) =>
+    isAnnouncementForUser(a, userProfile.phone, userProfile.email)
+  );
 
   const activeAnnouncement = userAnnouncements[currentAnnIndex] || userAnnouncements[0] || null;
   const isCurrentUnread = activeAnnouncement ? !activeReadIds.includes(activeAnnouncement.id) : false;

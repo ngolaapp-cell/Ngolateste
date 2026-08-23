@@ -27,6 +27,8 @@ import {
   saveUserProfile,
   saveExamResult,
   fetchAdminAnnouncements,
+  subscribeToRealtimeAnnouncements,
+  isAnnouncementForUser,
 } from './services/supabaseService';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -193,27 +195,40 @@ export function App() {
     }
   }, []);
 
+  // Synthesized notification chime (Web Audio API)
+  const playNotificationChime = useCallback(() => {
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+      osc.frequency.exponentialRampToValueAtTime(880, ctx.currentTime + 0.12); // A5
+
+      gain.gain.setValueAtTime(0.12, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      osc.stop(ctx.currentTime + 0.4);
+    } catch (_) {}
+  }, []);
+
+  // Real-Time Active Subscription (SSE + Supabase Realtime + BroadcastChannel + Auto-poll)
   useEffect(() => {
-    loadAnnouncements();
+    const unsubscribe = subscribeToRealtimeAnnouncements((freshData) => {
+      setAnnouncements(freshData);
+    });
 
-    // Re-load announcements when broadcast event occurs or window focus
-    const handleAnnouncementsUpdate = () => {
-      loadAnnouncements();
-      try {
-        if (userProfile.phone) {
-          const savedRead = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
-          if (savedRead) setReadAnnouncementIds(JSON.parse(savedRead));
-        }
-      } catch (_) {}
-    };
-
-    window.addEventListener('ngola_announcements_updated', handleAnnouncementsUpdate);
-    window.addEventListener('storage', handleAnnouncementsUpdate);
     return () => {
-      window.removeEventListener('ngola_announcements_updated', handleAnnouncementsUpdate);
-      window.removeEventListener('storage', handleAnnouncementsUpdate);
+      unsubscribe();
     };
-  }, [loadAnnouncements, userProfile.phone]);
+  }, []);
 
   // Sync user-specific read keys when userProfile.phone changes
   useEffect(() => {
@@ -225,20 +240,11 @@ export function App() {
     }
   }, [userProfile.phone]);
 
-  // Calculate unread notifications count for the current user (announcements always persist for user)
+  // Calculate unread notifications count for the current user with normalized targeting
   const userAnnouncements = useMemo(() => {
-    return announcements.filter((a) => {
-      if (!a.active) return false;
-      if (a.targetType === 'all') return true;
-      if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
-        const uPhone = (userProfile.phone || '').trim();
-        const uEmail = (userProfile.email || '').trim().toLowerCase();
-        return a.targetPhones.some(
-          (p) => p.trim() === uPhone || (uEmail && p.trim().toLowerCase() === uEmail)
-        );
-      }
-      return false;
-    });
+    return announcements.filter((a) =>
+      isAnnouncementForUser(a, userProfile.phone, userProfile.email)
+    );
   }, [announcements, userProfile.phone, userProfile.email]);
 
   const unreadAnnouncementsCount = useMemo(() => {
@@ -250,7 +256,7 @@ export function App() {
     updateAppBadge(unreadAnnouncementsCount);
   }, [unreadAnnouncementsCount]);
 
-  // Trigger system notification when a new unread announcement is detected
+  // Trigger system notification & audio chime when a new unread announcement arrives
   useEffect(() => {
     if (unreadAnnouncementsCount > 0 && userAnnouncements.length > 0) {
       const firstUnread = userAnnouncements.find((a) => !readAnnouncementIds.includes(a.id));
@@ -258,15 +264,16 @@ export function App() {
         const lastNotifiedId = sessionStorage.getItem('ngola_last_notified_ann_id');
         if (lastNotifiedId !== firstUnread.id) {
           sessionStorage.setItem('ngola_last_notified_ann_id', firstUnread.id);
+          playNotificationChime();
           sendNativeNotification(
-            firstUnread.title || 'NgolaTeste: Nova mensagem',
-            firstUnread.message || 'Você recebeu uma nova mensagem do Administrador.',
-            firstUnread.imageUrl || '/official_logo.png'
+            firstUnread.title || 'NgolaTeste: Novo Comunicado do Administrador',
+            firstUnread.content || 'Você recebeu uma nova mensagem oficial.',
+            firstUnread.mediaUrl || '/official_logo.png'
           );
         }
       }
     }
-  }, [unreadAnnouncementsCount, userAnnouncements, readAnnouncementIds]);
+  }, [unreadAnnouncementsCount, userAnnouncements, readAnnouncementIds, playNotificationChime]);
 
   const handleMarkAnnouncementAsRead = useCallback((id: string) => {
     setReadAnnouncementIds((prev) => {

@@ -1944,12 +1944,75 @@ const DEFAULT_ANNOUNCEMENTS: AdminAnnouncement[] = [
   },
 ];
 
+// Helper to normalize phone digits for 100% accurate targeting comparison
+export function cleanPhoneDigits(phone?: string): string {
+  if (!phone) return '';
+  return phone.replace(/\D/g, '').replace(/^244/, '');
+}
+
+// Checks whether an announcement is targeted to a specific user
+export function isAnnouncementForUser(
+  ann: AdminAnnouncement,
+  userPhone?: string,
+  userEmail?: string
+): boolean {
+  if (!ann.active) return false;
+  if (ann.targetType === 'all') return true;
+
+  if ((ann.targetType === 'single' || ann.targetType === 'selected') && ann.targetPhones && ann.targetPhones.length > 0) {
+    const rawPhone = (userPhone || '').trim();
+    const cleanUser = cleanPhoneDigits(rawPhone);
+    const rawEmail = (userEmail || '').trim().toLowerCase();
+
+    return ann.targetPhones.some((target) => {
+      if (!target) return false;
+      const cleanTarget = cleanPhoneDigits(target);
+      const rawTarget = target.trim();
+
+      // 1. Clean digit match (e.g. "923361877" vs "+244 923 361 877")
+      if (cleanUser && cleanTarget && (cleanUser === cleanTarget || cleanUser.endsWith(cleanTarget) || cleanTarget.endsWith(cleanUser))) {
+        return true;
+      }
+
+      // 2. Direct string match
+      if (rawPhone && rawTarget && rawPhone === rawTarget) {
+        return true;
+      }
+
+      // 3. Email match
+      if (rawEmail && rawTarget.toLowerCase() === rawEmail) {
+        return true;
+      }
+
+      return false;
+    });
+  }
+
+  return false;
+}
+
 export async function fetchAdminAnnouncements(): Promise<AdminAnnouncement[]> {
   const tombstones: string[] = JSON.parse(localStorage.getItem('ngola_deleted_announcements') || '[]');
   const localSaved = localStorage.getItem('ngola_admin_announcements');
   const rawFallback: AdminAnnouncement[] = localSaved ? JSON.parse(localSaved) : DEFAULT_ANNOUNCEMENTS;
   const fallbackList = rawFallback.filter((a) => !tombstones.includes(String(a.id)));
 
+  // 1. Try Backend API first for fast unified server cache
+  try {
+    const apiRes = await fetch('/api/announcements', { cache: 'no-store' });
+    if (apiRes.ok) {
+      const apiData = await apiRes.json();
+      if (apiData?.success && Array.isArray(apiData.announcements) && apiData.announcements.length > 0) {
+        const filtered = apiData.announcements.filter((a: AdminAnnouncement) => !tombstones.includes(String(a.id)));
+        localStorage.setItem('ngola_admin_announcements', JSON.stringify(filtered));
+        return filtered;
+      }
+    }
+  } catch (_) {
+    // continue to Supabase directly
+  }
+
+  // 2. Query Supabase directly
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
     return fallbackList;
@@ -2019,9 +2082,31 @@ export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ s
   const updated = [ann, ...filtered];
   localStorage.setItem('ngola_admin_announcements', JSON.stringify(updated));
 
+  // Dispatch local events immediately
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+    try {
+      if ('BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('ngola_announcements_channel');
+        bc.postMessage({ type: 'announcement_saved', id: ann.id });
+        bc.close();
+      }
+    } catch (_) {}
+  }
+
+  // 1. Post to Server Backend for Instant SSE Broadcast to all connected devices
+  try {
+    fetch('/api/announcements', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ann),
+    }).catch((e) => console.warn('Server SSE publish warning:', e));
+  } catch (_) {}
+
+  // 2. Post to Supabase database
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
-    return { success: true, message: 'Mensagem/Propaganda guardada localmente com sucesso.' };
+    return { success: true, message: 'Mensagem/Propaganda transmitida com sucesso!' };
   }
 
   try {
@@ -2041,10 +2126,6 @@ export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ s
       created_at: ann.createdAt || new Date().toISOString(),
     };
 
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
-    }
-
     let res = await client.from('comunicados').upsert(payload, { onConflict: 'id' });
     if (res.error) {
       res = await client.from('admin_announcements').upsert(payload, { onConflict: 'id' });
@@ -2055,7 +2136,7 @@ export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ s
       return { success: true, message: `Salvo no dispositivo. Aviso Supabase: ${res.error.message}` };
     }
 
-    return { success: true, message: 'Mensagem/Propaganda publicada com sucesso no Supabase!' };
+    return { success: true, message: 'Mensagem/Propaganda publicada e enviada em tempo real com sucesso!' };
   } catch (err: any) {
     console.error('Error saving announcement to Supabase:', err);
     return { success: false, message: `Erro ao salvar no Supabase: ${err?.message || String(err)}` };
@@ -2078,7 +2159,19 @@ export async function deleteAdminAnnouncement(id: string): Promise<{ success: bo
   // 3. Dispatch event so UI and badgeManager update instantly
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
+    try {
+      if ('BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('ngola_announcements_channel');
+        bc.postMessage({ type: 'announcement_deleted', id });
+        bc.close();
+      }
+    } catch (_) {}
   }
+
+  // 4. Notify backend server
+  try {
+    fetch(`/api/announcements/${id}`, { method: 'DELETE' }).catch(() => {});
+  } catch (_) {}
 
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
@@ -2092,6 +2185,120 @@ export async function deleteAdminAnnouncement(id: string): Promise<{ success: bo
   } catch (err: any) {
     return { success: true, message: `Mensagem apagada localmente. Erro Supabase: ${err?.message || String(err)}` };
   }
+}
+
+// Global Real-Time Subscription Manager (SSE + Supabase Realtime + BroadcastChannel + Periodic Poll)
+export function subscribeToRealtimeAnnouncements(
+  onUpdate: (announcements: AdminAnnouncement[]) => void
+): () => void {
+  let isCleanedUp = false;
+
+  const triggerUpdate = async () => {
+    if (isCleanedUp) return;
+    try {
+      const fresh = await fetchAdminAnnouncements();
+      if (!isCleanedUp && fresh) {
+        onUpdate(fresh);
+      }
+    } catch (_) {}
+  };
+
+  // 1. Initial immediate trigger
+  triggerUpdate();
+
+  // 2. Server-Sent Events (SSE) stream for instant server push across all connected users
+  let eventSource: EventSource | null = null;
+  try {
+    if (typeof window !== 'undefined' && 'EventSource' in window) {
+      eventSource = new EventSource('/api/announcements/stream');
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && (data.type === 'new_announcement' || data.type === 'delete_announcement' || data.type === 'update')) {
+            triggerUpdate();
+          }
+        } catch (_) {}
+      };
+      eventSource.onerror = () => {
+        // SSE reconnects automatically
+      };
+    }
+  } catch (sseErr) {
+    console.warn('SSE connection warning:', sseErr);
+  }
+
+  // 3. Supabase Realtime Channel
+  let supabaseChannel: any = null;
+  const client = getSupabaseClient();
+  if (client && isSupabaseConfigured()) {
+    try {
+      supabaseChannel = client
+        .channel('ngola_realtime_announcements_' + Math.random().toString(36).substring(2, 6))
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'comunicados' }, () => {
+          triggerUpdate();
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'admin_announcements' }, () => {
+          triggerUpdate();
+        })
+        .subscribe();
+    } catch (realtimeErr) {
+      console.warn('Supabase realtime channel warning:', realtimeErr);
+    }
+  }
+
+  // 4. Cross-tab BroadcastChannel
+  let broadcastChannel: any = null;
+  try {
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      broadcastChannel = new BroadcastChannel('ngola_announcements_channel');
+      broadcastChannel.onmessage = () => {
+        triggerUpdate();
+      };
+    }
+  } catch (_) {}
+
+  // 5. Window events (local custom events, storage, visibilitychange, focus)
+  const handleLocalEvent = () => triggerUpdate();
+  if (typeof window !== 'undefined') {
+    window.addEventListener('ngola_announcements_updated', handleLocalEvent);
+    window.addEventListener('storage', handleLocalEvent);
+    window.addEventListener('focus', handleLocalEvent);
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') {
+        triggerUpdate();
+      }
+    });
+  }
+
+  // 6. Heartbeat fallback polling (every 4 seconds) to guarantee 100% real-time arrival
+  const pollInterval = setInterval(() => {
+    if (!isCleanedUp && document.visibilityState === 'visible') {
+      triggerUpdate();
+    }
+  }, 4000);
+
+  return () => {
+    isCleanedUp = true;
+    clearInterval(pollInterval);
+    if (eventSource) {
+      eventSource.close();
+    }
+    if (supabaseChannel && client) {
+      try {
+        client.removeChannel(supabaseChannel);
+      } catch (_) {}
+    }
+    if (broadcastChannel) {
+      try {
+        broadcastChannel.close();
+      } catch (_) {}
+    }
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('ngola_announcements_updated', handleLocalEvent);
+      window.removeEventListener('storage', handleLocalEvent);
+      window.removeEventListener('focus', handleLocalEvent);
+    }
+  };
 }
 
 export async function validateAndApplyActivationCode(

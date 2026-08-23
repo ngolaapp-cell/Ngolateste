@@ -814,6 +814,201 @@ interface SharedResultData {
 }
 const sharedResultsMap = new Map<string, SharedResultData>();
 
+// --- REAL-TIME ANNOUNCEMENTS & NOTIFICATIONS SSE HUB ---
+interface ServerAnnouncement {
+  id: string;
+  title: string;
+  content: string;
+  type: "text" | "image" | "video";
+  mediaUrl?: string;
+  actionText?: string;
+  actionUrl?: string;
+  badge?: string;
+  targetType: "all" | "single" | "selected";
+  targetPhones?: string[];
+  active: boolean;
+  dismissible: boolean;
+  createdAt: string;
+}
+
+let serverAnnouncementsCache: ServerAnnouncement[] = [];
+const sseClients = new Set<express.Response>();
+
+function broadcastAnnouncementUpdate(payload?: any) {
+  const dataString = `data: ${JSON.stringify(payload || { type: "update", timestamp: Date.now() })}\n\n`;
+  for (const client of sseClients) {
+    try {
+      client.write(dataString);
+    } catch (_) {
+      sseClients.delete(client);
+    }
+  }
+}
+
+// Server-Sent Events Endpoint for Instant Real-Time Notifications
+app.get("/api/announcements/stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+
+  // Send initial ping and current count
+  res.write(`data: ${JSON.stringify({ type: "connected", timestamp: Date.now() })}\n\n`);
+
+  sseClients.add(res);
+
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(": heartbeat\n\n");
+    } catch (_) {
+      clearInterval(heartbeatInterval);
+      sseClients.delete(res);
+    }
+  }, 15000);
+
+  req.on("close", () => {
+    clearInterval(heartbeatInterval);
+    sseClients.delete(res);
+  });
+});
+
+// GET Announcements from Server / Supabase
+app.get("/api/announcements", async (_req, res) => {
+  if (serverSupabase) {
+    try {
+      let { data, error } = await serverSupabase.from("comunicados").select("*").order("created_at", { ascending: false });
+      if (error || !data || data.length === 0) {
+        const alt = await serverSupabase.from("admin_announcements").select("*").order("created_at", { ascending: false });
+        data = alt.data;
+        error = alt.error;
+      }
+      if (!error && data && Array.isArray(data)) {
+        serverAnnouncementsCache = data.map((item: any) => {
+          let targetPhones: string[] = [];
+          if (Array.isArray(item.target_phones)) {
+            targetPhones = item.target_phones;
+          } else if (typeof item.target_phones === "string") {
+            try {
+              targetPhones = JSON.parse(item.target_phones);
+            } catch (_) {
+              targetPhones = [item.target_phones];
+            }
+          }
+          return {
+            id: String(item.id),
+            title: item.title || item.titulo || "Comunicado do Administrador",
+            content: item.content || item.conteudo || item.mensagem || "",
+            type: (item.type || item.tipo || "text") as "text" | "image" | "video",
+            mediaUrl: item.media_url || item.mediaUrl || item.imagem_url || item.video_url || undefined,
+            actionText: item.action_text || item.actionText || item.botao_texto || undefined,
+            actionUrl: item.action_url || item.actionUrl || item.botao_link || undefined,
+            badge: item.badge || item.etiqueta || "Comunicado",
+            targetType: (item.target_type || item.targetType || "all") as "all" | "single" | "selected",
+            targetPhones,
+            active: Boolean(item.active ?? item.ativo ?? true),
+            dismissible: Boolean(item.dismissible ?? item.fechavel ?? true),
+            createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+          };
+        });
+      }
+    } catch (e) {
+      console.warn("Server fetch announcements from Supabase error:", e);
+    }
+  }
+
+  res.json({ success: true, announcements: serverAnnouncementsCache });
+});
+
+// POST Save/Publish Announcement with Instant Real-Time Broadcast
+app.post("/api/announcements", async (req, res) => {
+  const ann: ServerAnnouncement = req.body;
+  if (!ann || !ann.title || !ann.content) {
+    return res.status(400).json({ success: false, message: "Título e mensagem são obrigatórios." });
+  }
+
+  const cleanAnn: ServerAnnouncement = {
+    id: ann.id ? String(ann.id) : `ann-${Date.now()}`,
+    title: ann.title.trim(),
+    content: ann.content.trim(),
+    type: ann.type || "text",
+    mediaUrl: ann.mediaUrl || undefined,
+    actionText: ann.actionText || undefined,
+    actionUrl: ann.actionUrl || undefined,
+    badge: ann.badge || "Comunicado ADM",
+    targetType: ann.targetType || "all",
+    targetPhones: Array.isArray(ann.targetPhones) ? ann.targetPhones : [],
+    active: ann.active ?? true,
+    dismissible: ann.dismissible ?? true,
+    createdAt: ann.createdAt || new Date().toISOString(),
+  };
+
+  // Update in-memory server cache
+  const filtered = serverAnnouncementsCache.filter((a) => a.id !== cleanAnn.id);
+  serverAnnouncementsCache = [cleanAnn, ...filtered];
+
+  // Persist to Supabase if configured
+  if (serverSupabase) {
+    try {
+      const payload = {
+        id: cleanAnn.id,
+        title: cleanAnn.title,
+        content: cleanAnn.content,
+        type: cleanAnn.type,
+        media_url: cleanAnn.mediaUrl || null,
+        action_text: cleanAnn.actionText || null,
+        action_url: cleanAnn.actionUrl || null,
+        badge: cleanAnn.badge,
+        target_type: cleanAnn.targetType,
+        target_phones: cleanAnn.targetPhones,
+        active: cleanAnn.active,
+        dismissible: cleanAnn.dismissible,
+        created_at: cleanAnn.createdAt,
+      };
+
+      let dbRes = await serverSupabase.from("comunicados").upsert(payload, { onConflict: "id" });
+      if (dbRes.error) {
+        await serverSupabase.from("admin_announcements").upsert(payload, { onConflict: "id" });
+      }
+    } catch (dbErr) {
+      console.warn("Could not upsert announcement to Supabase database:", dbErr);
+    }
+  }
+
+  // Instant Realtime SSE Broadcast to all connected candidates
+  broadcastAnnouncementUpdate({ type: "new_announcement", announcement: cleanAnn, timestamp: Date.now() });
+
+  return res.json({
+    success: true,
+    message: "Comunicado publicado e transmitido em tempo real com sucesso!",
+    announcement: cleanAnn,
+  });
+});
+
+// DELETE Announcement with Instant Real-Time Broadcast
+app.delete("/api/announcements/:id", async (req, res) => {
+  const id = req.params.id;
+  if (!id) {
+    return res.status(400).json({ success: false, message: "ID do comunicado obrigatório." });
+  }
+
+  serverAnnouncementsCache = serverAnnouncementsCache.filter((a) => a.id !== id);
+
+  if (serverSupabase) {
+    try {
+      await serverSupabase.from("comunicados").delete().eq("id", id);
+      await serverSupabase.from("admin_announcements").delete().eq("id", id);
+    } catch (e) {
+      console.warn("Could not delete announcement in Supabase database:", e);
+    }
+  }
+
+  // Broadcast deletion event to all connected clients
+  broadcastAnnouncementUpdate({ type: "delete_announcement", id, timestamp: Date.now() });
+
+  return res.json({ success: true, message: "Comunicado apagado com sucesso." });
+});
+
 // Upload Shared Result Card to Supabase / Server storage
 app.post("/api/share/save-result", async (req, res) => {
   try {
