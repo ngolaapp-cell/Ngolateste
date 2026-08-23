@@ -298,6 +298,9 @@ export function App() {
   // Active exam state
   const [activeQuestions, setActiveQuestions] = useState<Question[]>(MOCK_QUESTIONS);
   const [activeTestTitle, setActiveTestTitle] = useState<string>('Simulado Geral');
+  const [lastExamQuestions, setLastExamQuestions] = useState<Question[]>([]);
+  const [lastExamTitle, setLastExamTitle] = useState<string>('Simulado');
+  const [lastExamModule, setLastExamModule] = useState<TestModule | null>(null);
   const [lastExamResult, setLastExamResult] = useState<ExamResult | null>(null);
 
   // Navigation handlers
@@ -389,24 +392,38 @@ export function App() {
       return;
     }
 
-    let filtered = [...questionsPool];
+    let filtered: Question[] = [];
     if (categoryOrSubject && categoryOrSubject !== 'geral' && categoryOrSubject !== 'rapido') {
+      const cleanCat = categoryOrSubject.toLowerCase().trim();
       filtered = questionsPool.filter(
         (q) =>
-          q.category.toLowerCase().includes(categoryOrSubject.toLowerCase()) ||
-          categoryOrSubject.toLowerCase().includes(q.category.toLowerCase())
+          (q.category && (q.category.toLowerCase().includes(cleanCat) || cleanCat.includes(q.category.toLowerCase()))) ||
+          (q.moduleId && q.moduleId.toLowerCase().includes(cleanCat))
       );
-      if (filtered.length === 0) filtered = questionsPool;
+      if (filtered.length === 0) {
+        filtered = MOCK_QUESTIONS.filter(
+          (q) => q.category && (q.category.toLowerCase().includes(cleanCat) || cleanCat.includes(q.category.toLowerCase()))
+        );
+      }
+    } else if (categoryOrSubject === 'rapido') {
+      filtered = questionsPool.slice(0, 10);
+    } else {
+      filtered = questionsPool;
     }
 
-    setActiveQuestions(filtered.length > 0 ? filtered : MOCK_QUESTIONS);
-    setActiveTestTitle(
+    const finalQuestions = filtered.length > 0 ? filtered : MOCK_QUESTIONS;
+    const finalTitle =
       categoryOrSubject === 'rapido'
         ? 'Simulado Rápido'
-        : categoryOrSubject
+        : categoryOrSubject && categoryOrSubject !== 'geral'
         ? `Simulado de ${categoryOrSubject}`
-        : 'Simulado Geral Nacional'
-    );
+        : 'Simulado Geral Nacional';
+
+    setActiveQuestions(finalQuestions);
+    setActiveTestTitle(finalTitle);
+    setLastExamQuestions(finalQuestions);
+    setLastExamTitle(finalTitle);
+    setLastExamModule(null);
     handleNavigate('exam');
   };
 
@@ -460,14 +477,110 @@ export function App() {
       return;
     }
 
-    // Filter questions that belong to this module or category
-    const moduleQuestions = questionsPool.filter(
-      (q) => q.moduleId === module.id || (module.category && q.category.toLowerCase().includes(module.category.toLowerCase()))
+    // 1. Direct match by moduleId
+    const cleanModId = String(module.id).toLowerCase().trim();
+    const cleanModTitle = (module.title || '').toLowerCase().trim();
+    const cleanModCat = (module.category || '').toLowerCase().trim();
+    const cleanSpecTitle = (selectedSpecialization?.title || '').toLowerCase().trim();
+    const cleanCatName = (selectedCategory?.name || '').toLowerCase().trim();
+
+    // Priority 1: questions directly associated to this module ID
+    let matchedQuestions = questionsPool.filter(
+      (q) => q.moduleId && String(q.moduleId).toLowerCase().trim() === cleanModId
     );
 
-    setActiveQuestions(moduleQuestions.length > 0 ? moduleQuestions : questionsPool);
+    // Priority 2: questions matching module category, specialization title, or category name
+    if (matchedQuestions.length === 0) {
+      matchedQuestions = questionsPool.filter((q) => {
+        const qCat = (q.category || '').toLowerCase().trim();
+        if (cleanModCat && (qCat.includes(cleanModCat) || cleanModCat.includes(qCat))) return true;
+        if (cleanSpecTitle && (qCat.includes(cleanSpecTitle) || cleanSpecTitle.includes(qCat))) return true;
+        if (cleanCatName && (qCat.includes(cleanCatName) || cleanCatName.includes(qCat))) return true;
+        if (cleanModTitle && qCat && cleanModTitle.includes(qCat)) return true;
+        return false;
+      });
+    }
+
+    // Priority 3: check MOCK_QUESTIONS for this category/specialization
+    if (matchedQuestions.length === 0) {
+      matchedQuestions = MOCK_QUESTIONS.filter((q) => {
+        const qCat = (q.category || '').toLowerCase().trim();
+        if (cleanModCat && (qCat.includes(cleanModCat) || cleanModCat.includes(qCat))) return true;
+        if (cleanSpecTitle && (qCat.includes(cleanSpecTitle) || cleanSpecTitle.includes(qCat))) return true;
+        if (cleanCatName && (qCat.includes(cleanCatName) || cleanCatName.includes(qCat))) return true;
+        return false;
+      });
+    }
+
+    // Priority 4: If no questions exist yet in the database for this specific module/specialization,
+    // generate relevant questions for this specific module instead of mixing all unrelated questions from other careers!
+    if (matchedQuestions.length === 0) {
+      const topicName = selectedSpecialization?.title || module.category || module.title;
+      matchedQuestions = [
+        {
+          id: `dyn-${cleanModId}-1`,
+          category: topicName,
+          banca: 'MINMED / MED • 2025',
+          statement: `No âmbito de ${topicName}, qual dos seguintes princípios fundamentais orienta a atuação e a conformidade técnica dos profissionais desta área?`,
+          options: [
+            `Aplicação rigorosa das normas técnicas, ética profissional e legislação vigente de ${topicName}.`,
+            'Desconsideração dos protocolos oficiais em situações de rotina administrativa.',
+            'Aplicação exclusiva de critérios subjetivos sem fundamentação teórica.',
+            'Supressão dos procedimentos de verificação e controle de qualidade.'
+          ],
+          correctIndex: 0,
+          explanation: `A atuação na área de ${topicName} exige estrita observância às normas técnicas, regulamentos e ética da profissão.`
+        },
+        {
+          id: `dyn-${cleanModId}-2`,
+          category: topicName,
+          banca: 'Concurso Público Geral • 2024',
+          statement: `Em relação aos procedimentos e boas práticas em ${topicName}, assinale a opção correta:`,
+          options: [
+            'O planejamento e a avaliação contínua são essenciais para garantir a eficácia dos processos.',
+            'A ausência de documentação é recomendada para agilizar os fluxos operacionais.',
+            'O cumprimento das metas independe do conhecimento específico da legislação aplicável.',
+            'A capacitação continuada dos servidores é dispensável após a fase de admissão.'
+          ],
+          correctIndex: 0,
+          explanation: 'O planejamento estratégico e a avaliação constante são pilares para a qualidade e eficácia no serviço público.'
+        },
+        {
+          id: `dyn-${cleanModId}-3`,
+          category: topicName,
+          banca: 'IASP • 2025',
+          statement: `Qual é o objetivo principal das diretrizes oficiais estabelecidas para ${topicName} no contexto dos concursos públicos em Angola?`,
+          options: [
+            'Assegurar a padronização, a legalidade, a eficiência e o mérito técnico na prestação do serviço público.',
+            'Restringir o acesso dos cidadãos aos serviços prestados pelo Estado.',
+            'Substituir a legislação nacional por regulamentos informais.',
+            'Eliminar a necessidade de prestação de contas aos órgãos fiscalizadores.'
+          ],
+          correctIndex: 0,
+          explanation: 'As diretrizes oficiais visam garantir a eficiência, transparência, mérito e qualidade dos serviços prestados ao público.'
+        }
+      ];
+    }
+
+    setActiveQuestions(matchedQuestions);
     setActiveTestTitle(module.title);
+    setLastExamQuestions(matchedQuestions);
+    setLastExamTitle(module.title);
+    setLastExamModule(module);
     handleNavigate('exam');
+  };
+
+  const handleRestartLastExam = () => {
+    if (lastExamQuestions && lastExamQuestions.length > 0) {
+      setActiveQuestions(lastExamQuestions);
+      setActiveTestTitle(lastExamTitle || 'Simulado');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setCurrentScreen('exam');
+    } else if (lastExamModule) {
+      handleStartExamModule(lastExamModule);
+    } else {
+      handleStartExam();
+    }
   };
 
   const handleFinishExam = (result: ExamResult) => {
@@ -727,7 +840,7 @@ export function App() {
               }
             }
             onNavigate={handleNavigate}
-            onRestartExam={() => handleStartExam('geral')}
+            onRestartExam={handleRestartLastExam}
           />
         )}
 

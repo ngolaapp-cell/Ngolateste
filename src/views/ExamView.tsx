@@ -22,6 +22,10 @@ export const ExamView: React.FC<ExamViewProps> = ({
   );
   const [secondsLeft, setSecondsLeft] = useState(QUESTION_TIME_LIMIT);
   const [isFocusMode, setIsFocusMode] = useState(true);
+  const [showFinishModal, setShowFinishModal] = useState(false);
+
+  // Count answered questions up to now
+  const answeredCount = selectedAnswers.filter((ans) => ans !== null).length;
 
   // Reset timer on question change
   useEffect(() => {
@@ -118,6 +122,44 @@ export const ExamView: React.FC<ExamViewProps> = ({
     } else {
       handleNext();
     }
+  };
+
+  // Terminar o teste imediatamente considerando SOMENTE as perguntas respondidas até o momento
+  const handleFinishEarly = () => {
+    let answeredQuestionsCount = 0;
+    let correctCount = 0;
+
+    questions.forEach((q, idx) => {
+      if (selectedAnswers[idx] !== null && selectedAnswers[idx] !== undefined) {
+        answeredQuestionsCount++;
+        if (selectedAnswers[idx] === q.correctIndex) {
+          correctCount++;
+        }
+      }
+    });
+
+    const evaluatedTotal = answeredQuestionsCount > 0 ? answeredQuestionsCount : 1;
+    const percentage = answeredQuestionsCount > 0 ? Math.round((correctCount / answeredQuestionsCount) * 100) : 0;
+    const incorrectCount = answeredQuestionsCount > 0 ? answeredQuestionsCount - correctCount : 0;
+    const finalGrade = answeredQuestionsCount > 0 ? Math.round((correctCount / answeredQuestionsCount) * 20) : 0;
+
+    setShowFinishModal(false);
+
+    onFinishExam({
+      score: correctCount,
+      total: answeredQuestionsCount > 0 ? answeredQuestionsCount : 0,
+      percentage: percentage,
+      correctCount: correctCount,
+      incorrectCount: incorrectCount,
+      finalGrade: finalGrade,
+      studyTip:
+        answeredQuestionsCount > 0
+          ? `Teste terminado antecipadamente com ${answeredQuestionsCount} questão(ões) avaliada(s). Teve ${correctCount} acerto(s) (${percentage}%).`
+          : 'Teste terminado sem respostas registradas.',
+      categoryName: currentQuestion?.category || 'Conhecimentos Gerais',
+      testName: categoryTitle,
+      date: new Date().toLocaleDateString('pt-AO'),
+    });
   };
 
   return (
@@ -313,6 +355,23 @@ export const ExamView: React.FC<ExamViewProps> = ({
                 </p>
               </div>
             )}
+
+            {/* Quick Card Action / Finish button in marked zone */}
+            <div className="mt-6 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
+              <div className="text-xs text-slate-500 font-semibold flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                <span>{answeredCount} de {questions.length} respondidas</span>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setShowFinishModal(true)}
+                className="px-4 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 hover:text-rose-800 border border-rose-200 rounded-xl font-bold text-xs flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer shadow-xs"
+              >
+                <span className="material-symbols-outlined text-base">flag</span>
+                <span>Terminar Teste ({answeredCount})</span>
+              </button>
+            </div>
           </div>
 
           {/* Focus Mode & Timer Footer info */}
@@ -340,18 +399,27 @@ export const ExamView: React.FC<ExamViewProps> = ({
 
       {/* Bottom Action Bar */}
       <footer className="fixed bottom-0 left-0 w-full p-4 md:p-6 bg-[#F0F7FF]/90 backdrop-blur-xl flex justify-center items-center border-t border-blue-100 z-50">
-        <div className="max-w-3xl w-full flex justify-between items-center gap-4">
+        <div className="max-w-3xl w-full flex justify-between items-center gap-3 md:gap-4">
           <button
             onClick={handleSkip}
-            className="px-6 py-3.5 text-blue-700 font-bold hover:bg-blue-100/50 rounded-2xl transition-colors active:scale-95 cursor-pointer text-sm"
+            className="px-4 md:px-6 py-3.5 text-blue-700 font-bold hover:bg-blue-100/50 rounded-2xl transition-colors active:scale-95 cursor-pointer text-xs md:text-sm whitespace-nowrap"
           >
             Pular Questão
           </button>
 
           <button
+            type="button"
+            onClick={() => setShowFinishModal(true)}
+            className="px-4 md:px-5 py-3.5 bg-rose-500 hover:bg-rose-600 text-white font-bold rounded-2xl transition-all active:scale-95 cursor-pointer text-xs md:text-sm flex items-center gap-1.5 shadow-md shadow-rose-500/20 whitespace-nowrap"
+          >
+            <span className="material-symbols-outlined text-base md:text-lg">flag</span>
+            <span>Terminar</span>
+          </button>
+
+          <button
             onClick={handleNext}
             disabled={!hasAnswered}
-            className={`flex-1 md:flex-none md:min-w-[240px] px-8 py-4 font-extrabold text-base rounded-2xl shadow-lg transition-all flex justify-center items-center gap-2 ${
+            className={`flex-1 md:flex-none md:min-w-[200px] px-6 md:px-8 py-3.5 md:py-4 font-extrabold text-sm md:text-base rounded-2xl shadow-lg transition-all flex justify-center items-center gap-2 ${
               hasAnswered
                 ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/20 active:scale-95 cursor-pointer'
                 : 'bg-slate-300 text-slate-500 cursor-not-allowed shadow-none opacity-80'
@@ -362,6 +430,67 @@ export const ExamView: React.FC<ExamViewProps> = ({
           </button>
         </div>
       </footer>
+
+      {/* Confirmation Modal to Finish Test Early */}
+      {showFinishModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 md:p-8 shadow-2xl border border-slate-100 text-center">
+            <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="material-symbols-outlined text-3xl">flag</span>
+            </div>
+
+            <h3 className="text-xl font-black text-slate-900 mb-2">
+              Deseja terminar o teste agora?
+            </h3>
+
+            <p className="text-sm text-slate-600 leading-relaxed mb-6">
+              {answeredCount > 0 ? (
+                <>
+                  Serão consideradas apenas as <strong className="text-slate-900 font-black">{answeredCount} questões respondidas</strong> até ao momento (de um total de {questions.length}). A sua nota final e percentual de aproveitamento serão calculados exclusivamente com base nelas.
+                </>
+              ) : (
+                <>
+                  Você ainda não respondeu a nenhuma questão. Se terminar agora, a pontuação calculada será 0.
+                </>
+              )}
+            </p>
+
+            <div className="bg-slate-50 rounded-2xl p-4 mb-6 border border-slate-200/60 flex justify-around text-left">
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase">Respondidas</div>
+                <div className="text-lg font-black text-blue-600">{answeredCount}</div>
+              </div>
+              <div className="w-px bg-slate-200"></div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase">Restantes</div>
+                <div className="text-lg font-black text-slate-700">{questions.length - answeredCount}</div>
+              </div>
+              <div className="w-px bg-slate-200"></div>
+              <div>
+                <div className="text-[11px] font-bold text-slate-500 uppercase">Total do Banco</div>
+                <div className="text-lg font-black text-slate-900">{questions.length}</div>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                type="button"
+                onClick={() => setShowFinishModal(false)}
+                className="flex-1 px-5 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition-all cursor-pointer text-sm"
+              >
+                Continuar Respondendo
+              </button>
+              <button
+                type="button"
+                onClick={handleFinishEarly}
+                className="flex-1 px-5 py-3.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-2xl shadow-lg shadow-rose-600/20 transition-all cursor-pointer text-sm"
+              >
+                Sim, Terminar Agora
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
