@@ -173,14 +173,6 @@ export function App() {
 
   // Announcements & Notification System state
   const [announcements, setAnnouncements] = useState<AdminAnnouncement[]>([]);
-  const [dismissedAnnouncementIds, setDismissedAnnouncementIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch (_) {
-      return [];
-    }
-  });
   const [readAnnouncementIds, setReadAnnouncementIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
@@ -209,8 +201,6 @@ export function App() {
       loadAnnouncements();
       try {
         if (userProfile.phone) {
-          const savedDismissed = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
-          if (savedDismissed) setDismissedAnnouncementIds(JSON.parse(savedDismissed));
           const savedRead = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
           if (savedRead) setReadAnnouncementIds(JSON.parse(savedRead));
         }
@@ -225,23 +215,20 @@ export function App() {
     };
   }, [loadAnnouncements, userProfile.phone]);
 
-  // Sync user-specific read/dismissed keys when userProfile.phone changes
+  // Sync user-specific read keys when userProfile.phone changes
   useEffect(() => {
     if (userProfile.phone) {
       try {
-        const savedDismissed = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
-        setDismissedAnnouncementIds(savedDismissed ? JSON.parse(savedDismissed) : []);
         const savedRead = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
         setReadAnnouncementIds(savedRead ? JSON.parse(savedRead) : []);
       } catch (_) {}
     }
   }, [userProfile.phone]);
 
-  // Calculate unread notifications count for the current user
+  // Calculate unread notifications count for the current user (announcements always persist for user)
   const userAnnouncements = useMemo(() => {
     return announcements.filter((a) => {
       if (!a.active) return false;
-      if (dismissedAnnouncementIds.includes(a.id)) return false;
       if (a.targetType === 'all') return true;
       if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
         const uPhone = (userProfile.phone || '').trim();
@@ -252,7 +239,7 @@ export function App() {
       }
       return false;
     });
-  }, [announcements, dismissedAnnouncementIds, userProfile.phone, userProfile.email]);
+  }, [announcements, userProfile.phone, userProfile.email]);
 
   const unreadAnnouncementsCount = useMemo(() => {
     return userAnnouncements.filter((a) => !readAnnouncementIds.includes(a.id)).length;
@@ -300,16 +287,6 @@ export function App() {
       localStorage.setItem(`ngola_read_ann_${userProfile.phone}`, JSON.stringify(updated));
     } catch (_) {}
   }, [userAnnouncements, readAnnouncementIds, userProfile.phone]);
-
-  const handleDismissAnnouncement = useCallback((id: string) => {
-    setDismissedAnnouncementIds((prev) => {
-      const updated = [...prev, id];
-      try {
-        localStorage.setItem(`ngola_dismissed_ann_${userProfile.phone}`, JSON.stringify(updated));
-      } catch (_) {}
-      return updated;
-    });
-  }, [userProfile.phone]);
 
   // Active exam state
   const [activeQuestions, setActiveQuestions] = useState<Question[]>(MOCK_QUESTIONS);
@@ -779,10 +756,8 @@ export function App() {
             announcements={announcements}
             unreadCount={unreadAnnouncementsCount}
             readIds={readAnnouncementIds}
-            dismissedIds={dismissedAnnouncementIds}
             onMarkAsRead={handleMarkAnnouncementAsRead}
             onMarkAllAsRead={handleMarkAllAnnouncementsAsRead}
-            onDismissAnnouncement={handleDismissAnnouncement}
             onRefreshAnnouncements={loadAnnouncements}
           />
         )}

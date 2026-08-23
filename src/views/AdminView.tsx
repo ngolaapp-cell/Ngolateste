@@ -299,6 +299,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [isSavingAnn, setIsSavingAnn] = useState(false);
   const [isUploadingAnnMedia, setIsUploadingAnnMedia] = useState(false);
   const [annUserSearch, setAnnUserSearch] = useState('');
+  const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null);
+  const [confirmDeleteAnnId, setConfirmDeleteAnnId] = useState<string | null>(null);
 
   // Admin Recovery Email states
   const [recoveryEmailInput, setRecoveryEmailInput] = useState(adminRecoveryEmail || 'ngolaapp@gmail.com');
@@ -1367,12 +1369,30 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
     }
   };
 
-  const handleDeleteAnnouncement = async (id: string, title: string) => {
-    if (!confirm(`Tem certeza que deseja apagar o comunicado "${title}"?`)) return;
-    const res = await deleteAdminAnnouncement(id);
-    setAnnNotice(res);
-    await loadAnnouncements();
-    setTimeout(() => setAnnNotice(null), 4000);
+  const handleDeleteAnnouncement = async (id: string, title?: string) => {
+    setDeletingAnnId(id);
+    setConfirmDeleteAnnId(null);
+    try {
+      // 1. Remove immediately from local state
+      setAnnouncementsList((prev) => prev.filter((a) => a.id !== id));
+      if (editingAnnouncement?.id === id) {
+        handleResetAnnForm();
+      }
+
+      // 2. Execute deletion in Supabase & local storage
+      const res = await deleteAdminAnnouncement(id);
+      setAnnNotice(res);
+      await loadAnnouncements();
+      setTimeout(() => setAnnNotice(null), 4000);
+    } catch (err: any) {
+      console.error('Error deleting announcement:', err);
+      setAnnNotice({
+        success: false,
+        message: `Falha ao apagar comunicado: ${err?.message || String(err)}`,
+      });
+    } finally {
+      setDeletingAnnId(null);
+    }
   };
 
   const handleToggleAnnouncementActive = async (ann: AdminAnnouncement) => {
@@ -4696,15 +4716,46 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                           <span>Editar</span>
                         </button>
 
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteAnnouncement(ann.id, ann.title)}
-                          className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-xs cursor-pointer flex items-center gap-1 transition-all"
-                          title="Apagar comunicado"
-                        >
-                          <span className="material-symbols-outlined text-xs">delete</span>
-                          <span>Apagar</span>
-                        </button>
+                        {confirmDeleteAnnId === ann.id ? (
+                          <div className="flex items-center gap-1 bg-red-50 p-1 rounded-lg border border-red-200">
+                            <button
+                              type="button"
+                              disabled={deletingAnnId === ann.id}
+                              onClick={() => handleDeleteAnnouncement(ann.id, ann.title)}
+                              className="px-2 py-1 bg-red-600 hover:bg-red-700 text-white rounded-md text-xs font-bold flex items-center gap-1 cursor-pointer shadow-sm transition-all"
+                            >
+                              {deletingAnnId === ann.id ? (
+                                <>
+                                  <span className="material-symbols-outlined text-xs animate-spin">refresh</span>
+                                  <span>Apagando...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="material-symbols-outlined text-xs">check</span>
+                                  <span>Confirmar?</span>
+                                </>
+                              )}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={deletingAnnId === ann.id}
+                              onClick={() => setConfirmDeleteAnnId(null)}
+                              className="px-2 py-1 bg-white hover:bg-slate-100 text-slate-600 rounded-md text-xs font-bold border border-slate-200 cursor-pointer"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteAnnId(ann.id)}
+                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-600 font-bold rounded-lg text-xs cursor-pointer flex items-center gap-1 transition-all border border-red-200/60"
+                            title="Apagar comunicado"
+                          >
+                            <span className="material-symbols-outlined text-xs">delete</span>
+                            <span>Apagar</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>

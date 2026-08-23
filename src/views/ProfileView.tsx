@@ -9,10 +9,8 @@ interface ProfileViewProps {
   announcements?: AdminAnnouncement[];
   unreadCount?: number;
   readIds?: string[];
-  dismissedIds?: string[];
   onMarkAsRead?: (id: string) => void;
   onMarkAllAsRead?: () => void;
-  onDismissAnnouncement?: (id: string) => void;
   onRefreshAnnouncements?: () => void;
 }
 
@@ -23,21 +21,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   announcements: propAnnouncements,
   unreadCount: propUnreadCount,
   readIds: propReadIds,
-  dismissedIds: propDismissedIds,
   onMarkAsRead: propOnMarkAsRead,
   onMarkAllAsRead: propOnMarkAllAsRead,
-  onDismissAnnouncement: propOnDismissAnnouncement,
   onRefreshAnnouncements,
 }) => {
   const [localAnnouncements, setLocalAnnouncements] = useState<AdminAnnouncement[]>([]);
-  const [localDismissedIds, setLocalDismissedIds] = useState<string[]>(() => {
-    try {
-      const saved = localStorage.getItem(`ngola_dismissed_ann_${userProfile.phone}`);
-      return saved ? JSON.parse(saved) : [];
-    } catch (_) {
-      return [];
-    }
-  });
   const [localReadIds, setLocalReadIds] = useState<string[]>(() => {
     try {
       const saved = localStorage.getItem(`ngola_read_ann_${userProfile.phone}`);
@@ -59,13 +47,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   }, [propAnnouncements]);
 
   const activeAnnouncementsList = propAnnouncements || localAnnouncements;
-  const activeDismissedIds = propDismissedIds || localDismissedIds;
   const activeReadIds = propReadIds || localReadIds;
 
-  // Filter announcements addressed to this user
+  // Filter announcements addressed to this user (Always persistent, cannot be deleted/dismissed by user)
   const userAnnouncements = activeAnnouncementsList.filter((a) => {
     if (!a.active) return false;
-    if (activeDismissedIds.includes(a.id)) return false;
     if (a.targetType === 'all') return true;
     if ((a.targetType === 'single' || a.targetType === 'selected') && a.targetPhones) {
       const uPhone = userProfile.phone.trim();
@@ -82,21 +68,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const totalUnreadCount = propUnreadCount !== undefined
     ? propUnreadCount
     : userAnnouncements.filter((a) => !activeReadIds.includes(a.id)).length;
-
-  const handleDismissAnnouncement = (id: string) => {
-    if (propOnDismissAnnouncement) {
-      propOnDismissAnnouncement(id);
-    } else {
-      const updated = [...localDismissedIds, id];
-      setLocalDismissedIds(updated);
-      try {
-        localStorage.setItem(`ngola_dismissed_ann_${userProfile.phone}`, JSON.stringify(updated));
-      } catch (_) {}
-    }
-    if (currentAnnIndex > 0) {
-      setCurrentAnnIndex((prev) => prev - 1);
-    }
-  };
 
   const handleToggleReadStatus = (id: string) => {
     if (activeReadIds.includes(id)) {
@@ -406,10 +377,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <button
                   type="button"
                   onClick={() => handleToggleReadStatus(activeAnnouncement.id)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 border ${
+                  className={`px-3 py-1.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 border shadow-2xs ${
                     isCurrentUnread
-                      ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600 shadow-xs'
-                      : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+                      ? 'bg-blue-600 hover:bg-blue-700 text-white border-blue-600'
+                      : 'bg-white hover:bg-slate-100 text-slate-700 border-slate-200'
                   }`}
                   title={isCurrentUnread ? 'Marcar como lida' : 'Marcar como não lida'}
                 >
@@ -418,17 +389,6 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </span>
                   <span>{isCurrentUnread ? 'Marcar como lida' : 'Lida'}</span>
                 </button>
-
-                {activeAnnouncement.dismissible && (
-                  <button
-                    type="button"
-                    onClick={() => handleDismissAnnouncement(activeAnnouncement.id)}
-                    className="w-7 h-7 rounded-lg bg-white hover:bg-slate-100 text-slate-400 hover:text-slate-700 border border-slate-200 flex items-center justify-center transition-all cursor-pointer shrink-0"
-                    title="Fechar mensagem"
-                  >
-                    <span className="material-symbols-outlined text-sm">close</span>
-                  </button>
-                )}
               </div>
             </div>
 
@@ -477,6 +437,33 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     className="w-full h-full object-cover rounded-2xl"
                   />
                 )}
+              </div>
+            )}
+
+            {/* Navigation footer between notifications when multiple exist */}
+            {userAnnouncements.length > 1 && (
+              <div className="pt-2 border-t border-slate-200/80 flex items-center justify-between gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => setCurrentAnnIndex((prev) => (prev > 0 ? prev - 1 : userAnnouncements.length - 1))}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                >
+                  <span className="material-symbols-outlined text-sm">arrow_back</span>
+                  <span>Notificação Anterior</span>
+                </button>
+
+                <span className="text-[11px] font-extrabold text-blue-700 bg-blue-100/70 px-2.5 py-1 rounded-full">
+                  {currentAnnIndex + 1} de {userAnnouncements.length}
+                </span>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentAnnIndex((prev) => (prev < userAnnouncements.length - 1 ? prev + 1 : 0))}
+                  className="px-3 py-1.5 bg-white hover:bg-slate-100 text-blue-700 text-xs font-bold rounded-xl border border-blue-200 flex items-center gap-1 cursor-pointer transition-all shadow-2xs"
+                >
+                  <span>Próxima Notificação</span>
+                  <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                </button>
               </div>
             )}
 

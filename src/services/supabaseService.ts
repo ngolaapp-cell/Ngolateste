@@ -1945,8 +1945,10 @@ const DEFAULT_ANNOUNCEMENTS: AdminAnnouncement[] = [
 ];
 
 export async function fetchAdminAnnouncements(): Promise<AdminAnnouncement[]> {
+  const tombstones: string[] = JSON.parse(localStorage.getItem('ngola_deleted_announcements') || '[]');
   const localSaved = localStorage.getItem('ngola_admin_announcements');
-  const fallbackList: AdminAnnouncement[] = localSaved ? JSON.parse(localSaved) : DEFAULT_ANNOUNCEMENTS;
+  const rawFallback: AdminAnnouncement[] = localSaved ? JSON.parse(localSaved) : DEFAULT_ANNOUNCEMENTS;
+  const fallbackList = rawFallback.filter((a) => !tombstones.includes(String(a.id)));
 
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
@@ -1965,34 +1967,36 @@ export async function fetchAdminAnnouncements(): Promise<AdminAnnouncement[]> {
       return fallbackList;
     }
 
-    const mapped: AdminAnnouncement[] = data.map((item: any) => {
-      let targetPhones: string[] = [];
-      if (Array.isArray(item.target_phones)) {
-        targetPhones = item.target_phones;
-      } else if (typeof item.target_phones === 'string') {
-        try {
-          targetPhones = JSON.parse(item.target_phones);
-        } catch (_) {
-          targetPhones = [item.target_phones];
+    const mapped: AdminAnnouncement[] = data
+      .map((item: any) => {
+        let targetPhones: string[] = [];
+        if (Array.isArray(item.target_phones)) {
+          targetPhones = item.target_phones;
+        } else if (typeof item.target_phones === 'string') {
+          try {
+            targetPhones = JSON.parse(item.target_phones);
+          } catch (_) {
+            targetPhones = [item.target_phones];
+          }
         }
-      }
 
-      return {
-        id: String(item.id),
-        title: item.title || item.titulo || 'Comunicado do Administrador',
-        content: item.content || item.conteudo || item.mensagem || '',
-        type: (item.type || item.tipo || 'text') as 'text' | 'image' | 'video',
-        mediaUrl: item.media_url || item.mediaUrl || item.imagem_url || item.video_url || undefined,
-        actionText: item.action_text || item.actionText || item.botao_texto || undefined,
-        actionUrl: item.action_url || item.actionUrl || item.botao_link || undefined,
-        badge: item.badge || item.etiqueta || 'Comunicado',
-        targetType: (item.target_type || item.targetType || 'all') as 'all' | 'single' | 'selected',
-        targetPhones,
-        active: Boolean(item.active ?? item.ativo ?? true),
-        dismissible: Boolean(item.dismissible ?? item.fechavel ?? true),
-        createdAt: item.created_at || item.createdAt || new Date().toISOString(),
-      };
-    });
+        return {
+          id: String(item.id),
+          title: item.title || item.titulo || 'Comunicado do Administrador',
+          content: item.content || item.conteudo || item.mensagem || '',
+          type: (item.type || item.tipo || 'text') as 'text' | 'image' | 'video',
+          mediaUrl: item.media_url || item.mediaUrl || item.imagem_url || item.video_url || undefined,
+          actionText: item.action_text || item.actionText || item.botao_texto || undefined,
+          actionUrl: item.action_url || item.actionUrl || item.botao_link || undefined,
+          badge: item.badge || item.etiqueta || 'Comunicado',
+          targetType: (item.target_type || item.targetType || 'all') as 'all' | 'single' | 'selected',
+          targetPhones,
+          active: Boolean(item.active ?? item.ativo ?? true),
+          dismissible: Boolean(item.dismissible ?? item.fechavel ?? true),
+          createdAt: item.created_at || item.createdAt || new Date().toISOString(),
+        };
+      })
+      .filter((item: AdminAnnouncement) => !tombstones.includes(String(item.id)));
 
     localStorage.setItem('ngola_admin_announcements', JSON.stringify(mapped));
     return mapped;
@@ -2003,6 +2007,12 @@ export async function fetchAdminAnnouncements(): Promise<AdminAnnouncement[]> {
 }
 
 export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ success: boolean; message: string }> {
+  // Clear any tombstone if re-saving
+  const tombstones: string[] = JSON.parse(localStorage.getItem('ngola_deleted_announcements') || '[]');
+  if (tombstones.includes(String(ann.id))) {
+    localStorage.setItem('ngola_deleted_announcements', JSON.stringify(tombstones.filter((id) => id !== String(ann.id))));
+  }
+
   // Update local storage cache
   const existing = await fetchAdminAnnouncements();
   const filtered = existing.filter((a) => a.id !== ann.id);
@@ -2053,17 +2063,26 @@ export async function saveAdminAnnouncement(ann: AdminAnnouncement): Promise<{ s
 }
 
 export async function deleteAdminAnnouncement(id: string): Promise<{ success: boolean; message: string }> {
+  // 1. Add to tombstone list
+  const tombstones: string[] = JSON.parse(localStorage.getItem('ngola_deleted_announcements') || '[]');
+  if (!tombstones.includes(String(id))) {
+    tombstones.push(String(id));
+    localStorage.setItem('ngola_deleted_announcements', JSON.stringify(tombstones));
+  }
+
+  // 2. Remove from local storage
   const existing = await fetchAdminAnnouncements();
-  const updated = existing.filter((a) => a.id !== id);
+  const updated = existing.filter((a) => String(a.id) !== String(id));
   localStorage.setItem('ngola_admin_announcements', JSON.stringify(updated));
 
+  // 3. Dispatch event so UI and badgeManager update instantly
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('ngola_announcements_updated'));
   }
 
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) {
-    return { success: true, message: 'Mensagem removida com sucesso.' };
+    return { success: true, message: 'Mensagem apagada com sucesso.' };
   }
 
   try {
