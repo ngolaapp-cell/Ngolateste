@@ -357,7 +357,18 @@ export function App() {
       setSelectedCategory(parentCategory);
     }
 
-    handleNavigate('tests');
+    const isUnlocked = checkIsSpecializationUnlocked(
+      spec,
+      userProfile,
+      categories,
+      parentCategory || selectedCategory
+    );
+
+    if (isUnlocked) {
+      handleNavigate('tests');
+    } else {
+      handleNavigate('activation');
+    }
   };
 
   const handleUpdateAdminPassword = (newPass: string) => {

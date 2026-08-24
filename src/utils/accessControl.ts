@@ -158,12 +158,8 @@ export function checkIsSpecializationUnlocked(
   // 3. Admin / VIP / Global plan access
   if (
     userProfile.role === 'admin' ||
-    userProfile.isActivated === true ||
     userProfile.isVip === true ||
-    userProfile.plan === 'pro' ||
-    userProfile.plan === 'ilimitado' ||
-    userProfile.accountStatus === 'ATIVO' ||
-    userProfile.accountStatus === 'APROVADO'
+    userProfile.plan === 'ilimitado'
   ) {
     return true;
   }

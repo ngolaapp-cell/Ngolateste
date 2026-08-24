@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Screen, UserProfile, Specialization } from '../types';
 import { validateAndApplyActivationCode } from '../services/supabaseService';
 import { SPECIALIZATIONS } from '../data/mockData';
+import { checkIsSpecializationUnlocked } from '../utils/accessControl';
 
 interface ActivationViewProps {
   userProfile: UserProfile;
@@ -26,6 +27,13 @@ export const ActivationView: React.FC<ActivationViewProps> = ({
   const [activeSpec, setActiveSpec] = useState<Specialization | null>(
     selectedSpecialization || (allSpecs.length > 0 ? allSpecs[0] : null)
   );
+
+  useEffect(() => {
+    if (selectedSpecialization) {
+      setActiveSpec(selectedSpecialization);
+    }
+  }, [selectedSpecialization]);
+
   const [activationCode, setActivationCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(
@@ -36,17 +44,8 @@ export const ActivationView: React.FC<ActivationViewProps> = ({
   const currentSpec = activeSpec || selectedSpecialization || (allSpecs.length > 0 ? allSpecs[0] : null);
 
   const isCurrentSpecAlreadyUnlocked = () => {
-    if (!currentSpec || !userProfile?.activatedSpecializations) return false;
-    const activated = userProfile.activatedSpecializations;
-    return (
-      activated.includes(currentSpec.id) ||
-      activated.includes(currentSpec.title) ||
-      activated.some(
-        (s) =>
-          s.toLowerCase().trim() === currentSpec.id.toLowerCase().trim() ||
-          s.toLowerCase().trim() === currentSpec.title.toLowerCase().trim()
-      )
-    );
+    if (!currentSpec) return false;
+    return checkIsSpecializationUnlocked(currentSpec, userProfile, [], null);
   };
 
   const alreadyUnlocked = isCurrentSpecAlreadyUnlocked();
