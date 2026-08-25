@@ -42,7 +42,7 @@ import { ActivationView } from './views/ActivationView';
 import { LoginView } from './views/LoginView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
-import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from './utils/accessControl';
+import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked, checkHasFullPlatformAccess } from './utils/accessControl';
 import { updateAppBadge, sendNativeNotification } from './utils/badgeManager';
 
 export function App() {
@@ -265,6 +265,17 @@ export function App() {
     updateAppBadge(unreadAnnouncementsCount);
   }, [unreadAnnouncementsCount]);
 
+  // Listen for real-time user profile updates from Admin, activation or Supabase
+  useEffect(() => {
+    const handleUserUpdated = (e: any) => {
+      if (e?.detail) {
+        setUserProfile(e.detail);
+      }
+    };
+    window.addEventListener('ngola-user-updated', handleUserUpdated);
+    return () => window.removeEventListener('ngola-user-updated', handleUserUpdated);
+  }, []);
+
   // Trigger system notification & audio chime when a new unread announcement arrives
   useEffect(() => {
     if (unreadAnnouncementsCount > 0 && userAnnouncements.length > 0) {
@@ -366,7 +377,7 @@ export function App() {
       setSelectedCategory(parentCategory);
     }
 
-    const isUnlocked = checkIsSpecializationUnlocked(
+    const isUnlocked = checkHasFullPlatformAccess(userProfile) || checkIsSpecializationUnlocked(
       spec,
       userProfile,
       categories,
@@ -406,6 +417,7 @@ export function App() {
     const freeAccess = isCategoryFree(categoryOrSubject) || (selectedCategory && isCategoryFree(selectedCategory.id));
     const activatedList = userProfile.activatedSpecializations || [];
     const hasAccess =
+      checkHasFullPlatformAccess(userProfile) ||
       userProfile.isActivated ||
       userProfile.role === 'admin' ||
       userProfile.isVip === true ||
@@ -484,6 +496,7 @@ export function App() {
       ));
 
     const isUnlocked =
+      checkHasFullPlatformAccess(userProfile) ||
       userProfile.isActivated ||
       userProfile.role === 'admin' ||
       userProfile.isVip === true ||
@@ -927,6 +940,8 @@ export function App() {
             categories={categories}
             specializations={specializations}
             questions={questionsPool}
+            currentUserProfile={userProfile}
+            onUpdateUserProfile={(profile) => setUserProfile(profile)}
             onNavigate={handleNavigate}
             onAddQuestion={handleAddQuestion}
             onUpdateQuestion={handleUpdateQuestion}

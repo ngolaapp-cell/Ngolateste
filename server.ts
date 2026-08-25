@@ -761,6 +761,71 @@ app.post("/api/admin/delete-user", async (req, res) => {
   });
 });
 
+// Admin Toggle User Activation (14-day full unlock of all categories & specializations)
+app.post("/api/admin/toggle-user-activation", async (req, res) => {
+  const { phone, activate, days = 14, categories = [], specializations = [], url, key } = req.body;
+  if (!phone || typeof phone !== "string" || !phone.trim()) {
+    return res.status(400).json({ success: false, message: "Número de telefone do usuário obrigatório." });
+  }
+
+  const cleanPhone = phone.trim();
+  const shouldActivate = Boolean(activate);
+  const durationDays = Number(days) || 14;
+
+  const expiresDate = new Date();
+  expiresDate.setDate(expiresDate.getDate() + durationDays);
+  const expiresAtStr = shouldActivate ? expiresDate.toLocaleDateString("pt-AO") : null;
+
+  const allActivatedSpecs: string[] = shouldActivate
+    ? Array.from(
+        new Set([
+          "all",
+          "ALL",
+          "TODAS",
+          "GLOBAL",
+          ...specializations.map((s: any) => (typeof s === "string" ? s : s?.id || s?.title)).filter(Boolean),
+          ...specializations.map((s: any) => (typeof s === "string" ? s : s?.title)).filter(Boolean),
+          ...categories.map((c: any) => (typeof c === "string" ? c : c?.id || c?.name)).filter(Boolean),
+          ...categories.map((c: any) => (typeof c === "string" ? c : c?.name)).filter(Boolean),
+        ])
+      )
+    : [];
+
+  const dynamicUrl = sanitizeUrl(url || supabaseUrl);
+  const dynamicKey = (key || supabaseKey).trim().replace(/^["']|["']$/g, "");
+  const client = (dynamicUrl && dynamicKey) ? createClient(dynamicUrl, dynamicKey) : serverSupabase;
+
+  if (client) {
+    try {
+      const updateData = {
+        is_activated: shouldActivate,
+        expires_at: expiresAtStr,
+        activated_specializations: allActivatedSpecs,
+        active_specialization_id: shouldActivate ? "all" : null,
+        active_specialization_title: shouldActivate ? "Todas Especialidades (Liberado 14d)" : null,
+        plan: shouldActivate ? "14d_todas_especialidades" : "gratuito",
+        updated_at: new Date().toISOString(),
+      };
+
+      await client.from("usuarios").update(updateData).eq("phone", cleanPhone);
+      await client.from("profiles").update(updateData).eq("phone", cleanPhone);
+    } catch (dbErr: any) {
+      console.warn("Notice updating user activation in Supabase via backend:", dbErr);
+    }
+  }
+
+  return res.json({
+    success: true,
+    isActivated: shouldActivate,
+    expiresAt: expiresAtStr,
+    activatedSpecializations: allActivatedSpecs,
+    plan: shouldActivate ? "14d_todas_especialidades" : "gratuito",
+    message: shouldActivate
+      ? `Todas as categorias e especialidades foram liberadas com sucesso por 14 dias para o candidato (${cleanPhone})!`
+      : `Acesso do candidato (${cleanPhone}) desativado com sucesso.`,
+  });
+});
+
 // Supabase Save Module Proxy Endpoint
 app.post("/api/supabase/save-module", async (req, res) => {
   const { module, url, key } = req.body;

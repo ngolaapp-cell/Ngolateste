@@ -843,6 +843,9 @@ export async function fetchUserProfile(phone: string): Promise<UserProfile | nul
       isBlocked: Boolean(data.is_blocked ?? data.isBlocked ?? isPhoneBlocked),
       blockedReason: data.blocked_reason || data.blockedReason || (isPhoneBlocked ? 'Comportamento irregular detectado' : undefined),
       blockedAt: data.blocked_at || data.blockedAt,
+      role: data.role || localParsed.role || 'user',
+      isVip: Boolean(data.is_vip ?? data.isVip ?? localParsed.isVip ?? false),
+      plan: data.plan || localParsed.plan || (Boolean(data.is_activated ?? data.isActivated) ? '14d_todas_especialidades' : 'gratuito'),
     };
   } catch (err) {
     console.warn('Supabase fetchUserProfile fallback:', err);
@@ -876,6 +879,11 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
     console.warn('Error updating local registered users list:', e);
   }
 
+  // Broadcast user update event
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('ngola-user-updated', { detail: profile }));
+  }
+
   const client = getSupabaseClient();
   if (!isSupabaseConfigured() || !client) return;
 
@@ -895,6 +903,9 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
       is_blocked: Boolean(profile.isBlocked),
       blocked_reason: profile.blockedReason || null,
       blocked_at: profile.blockedAt || null,
+      plan: profile.plan || (profile.isActivated ? '14d_todas_especialidades' : 'gratuito'),
+      role: profile.role || 'user',
+      is_vip: Boolean(profile.isVip),
       updated_at: new Date().toISOString(),
     };
 
@@ -906,6 +917,9 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
       delete (cleanPayload as any).is_blocked;
       delete (cleanPayload as any).blocked_reason;
       delete (cleanPayload as any).blocked_at;
+      delete (cleanPayload as any).plan;
+      delete (cleanPayload as any).role;
+      delete (cleanPayload as any).is_vip;
       await client.from('usuarios').upsert(cleanPayload, { onConflict: 'phone' });
       await client.from('profiles').upsert(cleanPayload, { onConflict: 'phone' });
     }
@@ -1247,6 +1261,29 @@ export async function adminToggleUserActivation(
       )
     : [];
 
+  // 1. First attempt backend proxy to ensure Supabase server-side update
+  try {
+    const res = await fetch('/api/admin/toggle-user-activation', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: cleanPhone,
+        activate,
+        days,
+        categories: catList,
+        specializations: specList,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.success && data.activatedSpecializations) {
+        // Updated via backend successfully
+      }
+    }
+  } catch (_) {
+    // Continue with direct client update
+  }
+
   const client = getSupabaseClient();
   if (isSupabaseConfigured() && client) {
     try {
@@ -1266,6 +1303,9 @@ export async function adminToggleUserActivation(
     }
   }
 
+  // Build the updated profile object
+  let updatedProfileObj: UserProfile | null = null;
+
   // Update local storage user profile
   const saved = localStorage.getItem(`ngola_user_${cleanPhone}`);
   if (saved) {
@@ -1277,6 +1317,7 @@ export async function adminToggleUserActivation(
     parsed.activeSpecializationTitle = activate ? 'Todas Especialidades (Liberado 14d)' : undefined;
     parsed.plan = activate ? '14d_todas_especialidades' : 'gratuito';
     localStorage.setItem(`ngola_user_${cleanPhone}`, JSON.stringify(parsed));
+    updatedProfileObj = parsed;
   }
 
   // Update current user session if it's the same candidate
@@ -1292,6 +1333,7 @@ export async function adminToggleUserActivation(
         parsedCurrent.activeSpecializationTitle = activate ? 'Todas Especialidades (Liberado 14d)' : undefined;
         parsedCurrent.plan = activate ? '14d_todas_especialidades' : 'gratuito';
         localStorage.setItem('ngola_current_user', JSON.stringify(parsedCurrent));
+        updatedProfileObj = parsedCurrent;
       }
     } catch (_) {}
   }
@@ -1313,6 +1355,13 @@ export async function adminToggleUserActivation(
         : u
     );
     localStorage.setItem('ngola_all_registered_users', JSON.stringify(updated));
+  }
+
+  // Broadcast change to active tabs/components
+  if (typeof window !== 'undefined') {
+    if (updatedProfileObj) {
+      window.dispatchEvent(new CustomEvent('ngola-user-updated', { detail: updatedProfileObj }));
+    }
   }
 
   return true;

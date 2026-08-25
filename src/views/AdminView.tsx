@@ -235,6 +235,8 @@ interface AdminViewProps {
   categories?: Category[];
   specializations?: Specialization[];
   questions?: Question[];
+  currentUserProfile?: UserProfile;
+  onUpdateUserProfile?: (profile: UserProfile) => void;
   onNavigate: (screen: Screen) => void;
   onAddQuestion: (question: Question) => void;
   onUpdateQuestion?: (question: Question) => void;
@@ -258,6 +260,8 @@ export const AdminView: React.FC<AdminViewProps> = ({
   categories = [],
   specializations = [],
   questions = [],
+  currentUserProfile,
+  onUpdateUserProfile,
   onNavigate,
   onAddQuestion,
   onUpdateQuestion,
@@ -538,6 +542,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const handleToggleUserActivation = async (phone: string, currentStatus: boolean) => {
     setTogglingUserPhone(phone);
     try {
+      const targetUser = realStats.usersList.find((u) => u.phone === phone);
       const newStatus = !currentStatus;
       await adminToggleUserActivation(phone, newStatus, 14, categories, allSpecs);
       
@@ -579,6 +584,27 @@ export const AdminView: React.FC<AdminViewProps> = ({
             : u
         ),
       }));
+
+      const updatedUserObj: UserProfile = {
+        name: targetUser?.name || 'Candidato Ngola',
+        phone,
+        email: targetUser?.email || '',
+        isActivated: newStatus,
+        expiresAt: newStatus ? expiresAtStr : undefined,
+        activatedSpecializations: allActivatedSpecs,
+        activeSpecializationId: newStatus ? 'all' : undefined,
+        activeSpecializationTitle: newStatus ? 'Todas Especialidades (Liberado 14d)' : undefined,
+        plan: newStatus ? '14d_todas_especialidades' : 'gratuito',
+        dailyGoalQuestions: targetUser?.dailyGoalQuestions ?? 30,
+        dailyCompletedQuestions: targetUser?.dailyCompletedQuestions ?? 0,
+        totalTestsTaken: targetUser?.totalTestsTaken ?? 0,
+        averageScore: targetUser?.averageScore ?? 0,
+        isBlocked: targetUser?.isBlocked ?? false,
+      };
+
+      if (onUpdateUserProfile && (!currentUserProfile || currentUserProfile.phone === phone)) {
+        onUpdateUserProfile(updatedUserObj);
+      }
 
       setUserActionNotice({
         success: true,

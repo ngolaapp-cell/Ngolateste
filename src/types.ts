@@ -88,6 +88,8 @@ export interface UserProfile {
   activationCode?: string;
   expiresAt?: string;
   activatedSpecializations?: string[]; // IDs or Titles of activated specializations
+  activeSpecializationId?: string;
+  activeSpecializationTitle?: string;
   dailyGoalQuestions: number;
   dailyCompletedQuestions: number;
   totalTestsTaken: number;

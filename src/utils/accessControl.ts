@@ -133,6 +133,37 @@ export function checkIsSpecializationFree(
 }
 
 /**
+ * Checks if a user has full platform access (activated, admin, VIP, or 14-day global unlock)
+ */
+export function checkHasFullPlatformAccess(userProfile?: UserProfile | null): boolean {
+  if (!userProfile) return false;
+  if (userProfile.isBlocked) return false;
+
+  if (
+    userProfile.isActivated === true ||
+    userProfile.role === 'admin' ||
+    userProfile.isVip === true ||
+    userProfile.plan === 'ilimitado' ||
+    userProfile.plan === '14d_todas_especialidades' ||
+    userProfile.plan === '14d_completo'
+  ) {
+    return true;
+  }
+
+  const activated = userProfile.activatedSpecializations || [];
+  if (
+    activated.includes('all') ||
+    activated.includes('ALL') ||
+    activated.includes('TODAS') ||
+    activated.includes('GLOBAL')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Checks if a specialization is unlocked for a user (either free OR activated)
  */
 export function checkIsSpecializationUnlocked(
@@ -155,15 +186,8 @@ export function checkIsSpecializationUnlocked(
     return false;
   }
 
-  // 3. Activated user / Admin / VIP / Global plan access
-  if (
-    userProfile.isActivated === true ||
-    userProfile.role === 'admin' ||
-    userProfile.isVip === true ||
-    userProfile.plan === 'ilimitado' ||
-    userProfile.plan === '14d_todas_especialidades' ||
-    userProfile.plan === '14d_completo'
-  ) {
+  // 3. Activated user / Admin / VIP / Global plan access (14d all specialties)
+  if (checkHasFullPlatformAccess(userProfile)) {
     return true;
   }
 
