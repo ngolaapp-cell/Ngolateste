@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Screen, Question, TestModule, Category, Specialization, UserProfile, AdminAnnouncement } from '../types';
 import { parseBulkQuestionsText } from '../utils/bulkQuestionParser';
 import { isFreeStatusTag } from '../utils/accessControl';
@@ -539,19 +539,61 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setTogglingUserPhone(phone);
     try {
       const newStatus = !currentStatus;
-      await adminToggleUserActivation(phone, newStatus, 14);
+      await adminToggleUserActivation(phone, newStatus, 14, categories, allSpecs);
+      
+      const expiresDate = new Date();
+      expiresDate.setDate(expiresDate.getDate() + 14);
+      const expiresAtStr = expiresDate.toLocaleDateString('pt-AO');
+
+      const allActivatedSpecs: string[] = newStatus
+        ? Array.from(
+            new Set([
+              'all',
+              'ALL',
+              'TODAS',
+              'GLOBAL',
+              ...allSpecs.map((s) => s.id),
+              ...allSpecs.map((s) => s.title),
+              ...categories.map((c) => c.id),
+              ...categories.map((c) => c.name),
+            ])
+          )
+        : [];
+
       setRealStats((prev) => ({
         ...prev,
         activeSubscriptions: newStatus
           ? prev.activeSubscriptions + 1
           : Math.max(0, prev.activeSubscriptions - 1),
         usersList: prev.usersList.map((u) =>
-          u.phone === phone ? { ...u, isActivated: newStatus } : u
+          u.phone === phone
+            ? {
+                ...u,
+                isActivated: newStatus,
+                expiresAt: newStatus ? expiresAtStr : undefined,
+                activatedSpecializations: allActivatedSpecs,
+                activeSpecializationId: newStatus ? 'all' : undefined,
+                activeSpecializationTitle: newStatus ? 'Todas Especialidades (Liberado 14d)' : undefined,
+                plan: newStatus ? '14d_todas_especialidades' : 'gratuito',
+              }
+            : u
         ),
       }));
-    } catch (e) {
+
+      setUserActionNotice({
+        success: true,
+        message: newStatus
+          ? `Todas as categorias e especialidades foram liberadas com sucesso por 14 dias para o candidato (${phone})!`
+          : `Acesso do candidato (${phone}) desativado com sucesso.`,
+      });
+      setTimeout(() => setUserActionNotice(null), 5000);
+    } catch (e: any) {
       console.error('Error updating user activation:', e);
-      alert('Erro ao alterar status da assinatura.');
+      setUserActionNotice({
+        success: false,
+        message: `Erro ao alterar assinatura: ${e?.message || 'Falha na operação'}`,
+      });
+      setTimeout(() => setUserActionNotice(null), 5000);
     } finally {
       setTogglingUserPhone(null);
     }
@@ -603,6 +645,79 @@ export const AdminView: React.FC<AdminViewProps> = ({
   const [newModuleYear, setNewModuleYear] = useState<number>(2025);
   const [newModuleBadge, setNewModuleBadge] = useState<'OFICIAL' | 'RECOMENDADO' | 'NOVO' | 'ESPECIAL'>('NOVO');
   const [newModuleDescription, setNewModuleDescription] = useState('');
+
+  // --- Module List Search, Filter & Sorting in Admin Panel ---
+  const [adminModuleSearchTerm, setAdminModuleSearchTerm] = useState('');
+  const [adminModuleCategoryFilter, setAdminModuleCategoryFilter] = useState('all');
+  const [adminModuleSortOrder, setAdminModuleSortOrder] = useState<'recent_desc' | 'alpha_asc' | 'alpha_desc' | 'recent_asc'>('recent_desc');
+
+  // Processed and sorted modules for admin view
+  const processedAdminModules = useMemo(() => {
+    let list = [...modules];
+
+    // Filter by Category or Specialization
+    if (adminModuleCategoryFilter !== 'all') {
+      const filterLower = adminModuleCategoryFilter.toLowerCase().trim();
+      list = list.filter((m) => {
+        const catMatch = (m.category || '').toLowerCase().includes(filterLower);
+        const specMatch = m.specializationNames?.some((s) => s.toLowerCase().includes(filterLower));
+        const idMatch = m.specializationIds?.some((id) => id.toLowerCase() === filterLower);
+        return catMatch || specMatch || idMatch;
+      });
+    }
+
+    // Filter by search term (Title / Name / Category / Year / Badge / Description)
+    if (adminModuleSearchTerm.trim()) {
+      const term = adminModuleSearchTerm.toLowerCase().trim();
+      list = list.filter((m) => {
+        const titleMatch = (m.title || '').toLowerCase().includes(term);
+        const descMatch = (m.description || '').toLowerCase().includes(term);
+        const catMatch = (m.category || '').toLowerCase().includes(term);
+        const specMatch = m.specializationNames?.some((s) => s.toLowerCase().includes(term));
+        const yearMatch = String(m.year || '').includes(term);
+        const badgeMatch = (m.badge || '').toLowerCase().includes(term);
+        return titleMatch || descMatch || catMatch || specMatch || yearMatch || badgeMatch;
+      });
+    }
+
+    // Sort order
+    if (adminModuleSortOrder === 'alpha_asc') {
+      list.sort((a, b) =>
+        (a.title || '').localeCompare(b.title || '', 'pt-AO', {
+          sensitivity: 'base',
+          numeric: true,
+        })
+      );
+    } else if (adminModuleSortOrder === 'alpha_desc') {
+      list.sort((a, b) =>
+        (b.title || '').localeCompare(a.title || '', 'pt-AO', {
+          sensitivity: 'base',
+          numeric: true,
+        })
+      );
+    } else if (adminModuleSortOrder === 'recent_asc') {
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeA && timeB && !isNaN(timeA) && !isNaN(timeB)) {
+          return timeA - timeB;
+        }
+        return 0;
+      });
+    } else {
+      // 'recent_desc' (Default): Último módulo criado até o primeiro módulo (ordem decrescente de criação)
+      list.sort((a, b) => {
+        const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        if (timeA && timeB && !isNaN(timeA) && !isNaN(timeB)) {
+          return timeB - timeA;
+        }
+        return 0;
+      });
+    }
+
+    return list;
+  }, [modules, adminModuleSearchTerm, adminModuleCategoryFilter, adminModuleSortOrder]);
 
   // --- Bulk Import States ---
   const [selectedModuleId, setSelectedModuleId] = useState<string>(modules[0]?.id || 'exame-2024');
@@ -1878,10 +1993,30 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
           </div>
 
           {/* List of Created Modules */}
-          <div className="bg-white rounded-3xl p-6 md:p-8 space-y-4 shadow-sm border border-slate-200/80">
-            <h3 className="text-lg font-bold text-slate-900 flex items-center justify-between">
-              <span>Módulos Cadastrados no Sistema ({modules.length})</span>
-            </h3>
+          <div className="bg-white rounded-3xl p-6 md:p-8 space-y-5 shadow-sm border border-slate-200/80">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-slate-100 pb-4">
+              <div>
+                <h3 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
+                  <span className="material-symbols-outlined text-blue-600">view_module</span>
+                  <span>Módulos Cadastrados no Sistema</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Gerencie exames, edite questões vinculadas, filtre por categoria ou pesquise por nome em ordem decrescente ou alfabética.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl border border-slate-200">
+                  <span className="material-symbols-outlined text-sm text-blue-600">layers</span>
+                  <span>Total: {modules.length}</span>
+                </span>
+                {processedAdminModules.length !== modules.length && (
+                  <span className="inline-flex items-center px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-bold rounded-xl border border-blue-200">
+                    Exibindo: {processedAdminModules.length}
+                  </span>
+                )}
+              </div>
+            </div>
 
             {/* Module Action Notice */}
             {moduleActionNotice && (
@@ -1899,8 +2034,163 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
               </div>
             )}
 
+            {/* SEARCH & FILTER CONTROLS BAR */}
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/90 space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-12 gap-3">
+                {/* Search Input */}
+                <div className="md:col-span-6 relative">
+                  <span className="material-symbols-outlined text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 text-lg">
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={adminModuleSearchTerm}
+                    onChange={(e) => setAdminModuleSearchTerm(e.target.value)}
+                    placeholder="Pesquisar módulo por nome, especialidade, ano ou selo..."
+                    className="w-full bg-white border border-slate-200 rounded-xl pl-10 pr-10 py-2.5 text-xs font-medium text-slate-800 placeholder-slate-400 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  />
+                  {adminModuleSearchTerm && (
+                    <button
+                      type="button"
+                      onClick={() => setAdminModuleSearchTerm('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 p-1 cursor-pointer"
+                      title="Limpar pesquisa"
+                    >
+                      <span className="material-symbols-outlined text-xs">close</span>
+                    </button>
+                  )}
+                </div>
+
+                {/* Category Filter */}
+                <div className="md:col-span-3">
+                  <select
+                    value={adminModuleCategoryFilter}
+                    onChange={(e) => setAdminModuleCategoryFilter(e.target.value)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-medium text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="all">Todas as Categorias ({modules.length})</option>
+                    {categories.map((c) => {
+                      const count = modules.filter(
+                        (m) =>
+                          (m.category || '').toLowerCase().includes(c.name.toLowerCase()) ||
+                          m.specializationNames?.some((s) => s.toLowerCase().includes(c.name.toLowerCase()))
+                      ).length;
+                      return (
+                        <option key={c.id} value={c.name}>
+                          {c.name} ({count})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+
+                {/* Sort Order Selector */}
+                <div className="md:col-span-3">
+                  <select
+                    value={adminModuleSortOrder}
+                    onChange={(e) => setAdminModuleSortOrder(e.target.value as any)}
+                    className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer"
+                  >
+                    <option value="recent_desc">🔽 Mais Recente → Mais Antigo (Último Criado)</option>
+                    <option value="alpha_asc">🔤 Ordem Alfabética (A → Z)</option>
+                    <option value="alpha_desc">🔠 Ordem Alfabética (Z → A)</option>
+                    <option value="recent_asc">🔼 Mais Antigo → Mais Recente</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Quick Sorting Pills & Active Filters */}
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200/60 text-xs">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">
+                    Ordenar por:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setAdminModuleSortOrder('recent_desc')}
+                    className={`px-2.5 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1 ${
+                      adminModuleSortOrder === 'recent_desc'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-xs">schedule</span>
+                    <span>Último Criado (Decrescente)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminModuleSortOrder('alpha_asc')}
+                    className={`px-2.5 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1 ${
+                      adminModuleSortOrder === 'alpha_asc'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-xs">sort_by_alpha</span>
+                    <span>Alfabética (A → Z)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAdminModuleSortOrder('alpha_desc')}
+                    className={`px-2.5 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1 ${
+                      adminModuleSortOrder === 'alpha_desc'
+                        ? 'bg-blue-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-xs">arrow_downward</span>
+                    <span>Alfabética (Z → A)</span>
+                  </button>
+                </div>
+
+                {(adminModuleSearchTerm || adminModuleCategoryFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminModuleSearchTerm('');
+                      setAdminModuleCategoryFilter('all');
+                    }}
+                    className="text-red-600 hover:text-red-700 font-bold text-xs flex items-center gap-1 cursor-pointer bg-red-50 hover:bg-red-100 px-2 py-1 rounded-lg border border-red-200/80 transition-colors"
+                  >
+                    <span className="material-symbols-outlined text-xs">filter_alt_off</span>
+                    <span>Limpar Filtros</span>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Empty State when no modules match search or filter */}
+            {processedAdminModules.length === 0 && (
+              <div className="bg-slate-50 rounded-2xl p-8 text-center border border-dashed border-slate-300 space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-slate-200 text-slate-500 flex items-center justify-center mx-auto">
+                  <span className="material-symbols-outlined text-2xl">search_off</span>
+                </div>
+                <h4 className="text-base font-bold text-slate-800">Nenhum módulo encontrado</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  {adminModuleSearchTerm || adminModuleCategoryFilter !== 'all'
+                    ? 'Nenhum módulo corresponde aos filtros de busca ou categoria selecionada.'
+                    : 'Ainda não existem módulos cadastrados no sistema.'}
+                </p>
+                {(adminModuleSearchTerm || adminModuleCategoryFilter !== 'all') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdminModuleSearchTerm('');
+                      setAdminModuleCategoryFilter('all');
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white font-bold text-xs rounded-xl hover:bg-blue-700 transition-colors cursor-pointer"
+                  >
+                    Limpar Filtros de Pesquisa
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Grid of Filtered and Sorted Modules */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {modules.map((mod) => {
+              {processedAdminModules.map((mod) => {
                 const specNames = mod.specializationNames && mod.specializationNames.length > 0
                   ? mod.specializationNames
                   : mod.category ? [mod.category] : ['Geral'];

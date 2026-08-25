@@ -358,8 +358,19 @@ export async function fetchTestModules(): Promise<TestModule[]> {
   const deleted: string[] = JSON.parse(localStorage.getItem('ngola_deleted_modules') || '[]');
   const deletedSet = new Set(deleted.map((d) => String(d).toLowerCase().trim()));
 
-  const localMods: TestModule[] = (localSaved ? JSON.parse(localSaved) : TEST_MODULES).filter(
-    (m: TestModule) => !deletedSet.has(String(m.id).toLowerCase().trim()) && !deletedSet.has(m.title.toLowerCase().trim())
+  const sortAlphabetically = (mods: TestModule[]) => {
+    return [...mods].sort((a, b) =>
+      (a.title || '').localeCompare(b.title || '', 'pt-AO', {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    );
+  };
+
+  const localMods: TestModule[] = sortAlphabetically(
+    (localSaved ? JSON.parse(localSaved) : TEST_MODULES).filter(
+      (m: TestModule) => !deletedSet.has(String(m.id).toLowerCase().trim()) && !deletedSet.has(m.title.toLowerCase().trim())
+    )
   );
 
   const client = getSupabaseClient();
@@ -368,9 +379,9 @@ export async function fetchTestModules(): Promise<TestModule[]> {
   }
 
   try {
-    let { data, error } = await client.from('modulos_teste').select('*').order('created_at', { ascending: false });
+    let { data, error } = await client.from('modulos_teste').select('*').order('title', { ascending: true });
     if (error || !data || data.length === 0) {
-      const res = await client.from('test_modules').select('*').order('created_at', { ascending: false });
+      const res = await client.from('test_modules').select('*').order('title', { ascending: true });
       data = res.data;
       error = res.error;
     }
@@ -405,7 +416,7 @@ export async function fetchTestModules(): Promise<TestModule[]> {
       if (!idMap.has(m.id)) idMap.set(m.id, m);
     });
 
-    const combined = Array.from(idMap.values());
+    const combined = sortAlphabetically(Array.from(idMap.values()));
     localStorage.setItem('ngola_test_modules', JSON.stringify(combined));
     return combined;
   } catch (err) {
@@ -1188,42 +1199,117 @@ export async function fetchRealStatistics(): Promise<{
 }
 
 /**
- * Admin toggles user activation status directly in Supabase
+ * Admin toggles user activation status directly in Supabase.
+ * When activating, releases all categories and all specializations for 14 days.
  */
-export async function adminToggleUserActivation(phone: string, activate: boolean, days: number = 14): Promise<boolean> {
+export async function adminToggleUserActivation(
+  phone: string,
+  activate: boolean,
+  days: number = 14,
+  providedCategories: Category[] = [],
+  providedSpecializations: Specialization[] = []
+): Promise<boolean> {
+  const cleanPhone = phone.trim();
   const expiresDate = new Date();
   expiresDate.setDate(expiresDate.getDate() + days);
+  const expiresAtStr = activate ? expiresDate.toLocaleDateString('pt-AO') : null;
+
+  // Gather all category and specialization identifiers to unlock all
+  let catList = providedCategories;
+  let specList = providedSpecializations;
+
+  if (catList.length === 0) {
+    try {
+      const cachedCats = localStorage.getItem('ngola_categories');
+      if (cachedCats) catList = JSON.parse(cachedCats);
+    } catch (_) {}
+  }
+
+  if (specList.length === 0) {
+    try {
+      const cachedSpecs = localStorage.getItem('ngola_specializations');
+      if (cachedSpecs) specList = JSON.parse(cachedSpecs);
+    } catch (_) {}
+  }
+
+  const allActivatedSpecs: string[] = activate
+    ? Array.from(
+        new Set([
+          'all',
+          'ALL',
+          'TODAS',
+          'GLOBAL',
+          ...specList.map((s) => s.id),
+          ...specList.map((s) => s.title),
+          ...catList.map((c) => c.id),
+          ...catList.map((c) => c.name),
+        ])
+      )
+    : [];
 
   const client = getSupabaseClient();
   if (isSupabaseConfigured() && client) {
     try {
       const updateData = {
         is_activated: activate,
-        expires_at: activate ? expiresDate.toLocaleDateString('pt-AO') : null,
+        expires_at: expiresAtStr,
+        activated_specializations: allActivatedSpecs,
+        active_specialization_id: activate ? 'all' : null,
+        active_specialization_title: activate ? 'Todas Especialidades (Liberado 14d)' : null,
+        plan: activate ? '14d_todas_especialidades' : 'gratuito',
         updated_at: new Date().toISOString(),
       };
-      await client.from('usuarios').update(updateData).eq('phone', phone);
-      await client.from('profiles').update(updateData).eq('phone', phone);
+      await client.from('usuarios').update(updateData).eq('phone', cleanPhone);
+      await client.from('profiles').update(updateData).eq('phone', cleanPhone);
     } catch (e) {
       console.error('Error toggling user activation in Supabase:', e);
     }
   }
 
-  // Update local storage
-  const saved = localStorage.getItem(`ngola_user_${phone}`);
+  // Update local storage user profile
+  const saved = localStorage.getItem(`ngola_user_${cleanPhone}`);
   if (saved) {
     const parsed = JSON.parse(saved);
     parsed.isActivated = activate;
-    parsed.expiresAt = activate ? expiresDate.toLocaleDateString('pt-AO') : null;
-    localStorage.setItem(`ngola_user_${phone}`, JSON.stringify(parsed));
+    parsed.expiresAt = expiresAtStr;
+    parsed.activatedSpecializations = allActivatedSpecs;
+    parsed.activeSpecializationId = activate ? 'all' : undefined;
+    parsed.activeSpecializationTitle = activate ? 'Todas Especialidades (Liberado 14d)' : undefined;
+    parsed.plan = activate ? '14d_todas_especialidades' : 'gratuito';
+    localStorage.setItem(`ngola_user_${cleanPhone}`, JSON.stringify(parsed));
+  }
+
+  // Update current user session if it's the same candidate
+  const currentActive = localStorage.getItem('ngola_current_user');
+  if (currentActive) {
+    try {
+      const parsedCurrent = JSON.parse(currentActive);
+      if (parsedCurrent.phone === cleanPhone) {
+        parsedCurrent.isActivated = activate;
+        parsedCurrent.expiresAt = expiresAtStr;
+        parsedCurrent.activatedSpecializations = allActivatedSpecs;
+        parsedCurrent.activeSpecializationId = activate ? 'all' : undefined;
+        parsedCurrent.activeSpecializationTitle = activate ? 'Todas Especialidades (Liberado 14d)' : undefined;
+        parsedCurrent.plan = activate ? '14d_todas_especialidades' : 'gratuito';
+        localStorage.setItem('ngola_current_user', JSON.stringify(parsedCurrent));
+      }
+    } catch (_) {}
   }
 
   const allUsersSaved = localStorage.getItem('ngola_all_registered_users');
   if (allUsersSaved) {
     const users: UserProfile[] = JSON.parse(allUsersSaved);
     const updated = users.map((u) =>
-      u.phone === phone
-        ? { ...u, isActivated: activate, expiresAt: activate ? expiresDate.toLocaleDateString('pt-AO') : undefined }
+      u.phone === cleanPhone
+        ? {
+            ...u,
+            isActivated: activate,
+            expiresAt: expiresAtStr || undefined,
+            activatedSpecializations: allActivatedSpecs,
+            activeSpecializationId: activate ? 'all' : undefined,
+            activeSpecializationTitle: activate ? 'Todas Especialidades (Liberado 14d)' : undefined,
+            plan: activate ? '14d_todas_especialidades' : 'gratuito',
+          }
         : u
     );
     localStorage.setItem('ngola_all_registered_users', JSON.stringify(updated));

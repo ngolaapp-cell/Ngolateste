@@ -105,8 +105,17 @@ export function App() {
     return fallback;
   };
 
+  const sortModulesAlphabetically = (mods: TestModule[]) => {
+    return [...mods].sort((a, b) =>
+      (a.title || '').localeCompare(b.title || '', 'pt-AO', {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    );
+  };
+
   const [testModules, setTestModules] = useState<TestModule[]>(() =>
-    getCachedData('ngola_test_modules', TEST_MODULES)
+    sortModulesAlphabetically(getCachedData('ngola_test_modules', TEST_MODULES))
   );
   const [questionsPool, setQuestionsPool] = useState<Question[]>(() =>
     getCachedData('ngola_questions_pool', MOCK_QUESTIONS)
@@ -135,7 +144,7 @@ export function App() {
           fetchSpecializations(),
           fetchAdminPassword(),
         ]);
-        if (fetchedMods && fetchedMods.length > 0) setTestModules(fetchedMods);
+        if (fetchedMods && fetchedMods.length > 0) setTestModules(sortModulesAlphabetically(fetchedMods));
         if (fetchedQuestions && fetchedQuestions.length > 0) setQuestionsPool(fetchedQuestions);
         if (fetchedCats && fetchedCats.length > 0) setCategories(fetchedCats);
         if (fetchedSpecs && fetchedSpecs.length > 0) setSpecializations(fetchedSpecs);
@@ -396,7 +405,14 @@ export function App() {
 
     const freeAccess = isCategoryFree(categoryOrSubject) || (selectedCategory && isCategoryFree(selectedCategory.id));
     const activatedList = userProfile.activatedSpecializations || [];
-    const hasAccess = freeAccess || activatedList.length > 0;
+    const hasAccess =
+      userProfile.isActivated ||
+      userProfile.role === 'admin' ||
+      userProfile.isVip === true ||
+      userProfile.plan === 'ilimitado' ||
+      userProfile.plan === '14d_todas_especialidades' ||
+      freeAccess ||
+      activatedList.length > 0;
 
     if (!hasAccess) {
       handleNavigate('activation');
@@ -468,6 +484,11 @@ export function App() {
       ));
 
     const isUnlocked =
+      userProfile.isActivated ||
+      userProfile.role === 'admin' ||
+      userProfile.isVip === true ||
+      userProfile.plan === 'ilimitado' ||
+      userProfile.plan === '14d_todas_especialidades' ||
       isCategoryFreeAccess ||
       hasUnlockedSpecInModule ||
       (selectedSpecialization && (
@@ -479,6 +500,10 @@ export function App() {
             s.toLowerCase().trim() === selectedSpecialization.title.toLowerCase().trim()
         )
       )) ||
+      activatedList.includes('all') ||
+      activatedList.includes('ALL') ||
+      activatedList.includes('TODAS') ||
+      activatedList.includes('GLOBAL') ||
       activatedList.includes(module.id) ||
       activatedList.includes(module.category) ||
       activatedList.includes(module.title);
@@ -673,7 +698,10 @@ export function App() {
   };
 
   const handleAddModule = (newModule: TestModule) => {
-    setTestModules((prev) => [newModule, ...prev]);
+    setTestModules((prev) => {
+      const withoutExisting = prev.filter((m) => m.id !== newModule.id);
+      return sortModulesAlphabetically([newModule, ...withoutExisting]);
+    });
     saveTestModule(newModule);
   };
 

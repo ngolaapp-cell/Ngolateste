@@ -155,11 +155,14 @@ export function checkIsSpecializationUnlocked(
     return false;
   }
 
-  // 3. Admin / VIP / Global plan access
+  // 3. Activated user / Admin / VIP / Global plan access
   if (
+    userProfile.isActivated === true ||
     userProfile.role === 'admin' ||
     userProfile.isVip === true ||
-    userProfile.plan === 'ilimitado'
+    userProfile.plan === 'ilimitado' ||
+    userProfile.plan === '14d_todas_especialidades' ||
+    userProfile.plan === '14d_completo'
   ) {
     return true;
   }

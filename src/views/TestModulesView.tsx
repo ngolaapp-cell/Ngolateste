@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useMemo } from 'react';
 import { Screen, TestModule, Specialization, Category, UserProfile } from '../types';
 import { TEST_MODULES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
@@ -23,6 +23,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
   onNavigate,
   onStartExamModule,
 }) => {
+  const [searchTerm, setSearchTerm] = useState('');
   const allModules = modules;
 
   // Check if current category or specialization is free
@@ -43,71 +44,93 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
     onStartExamModule(test);
   };
 
-  // Filter modules by specialization or category
-  let filteredModules = allModules;
+  // Filter modules by specialization or category and sort in ascending alphabetical order (A-Z)
+  const sortedModules = useMemo(() => {
+    let baseList: TestModule[] = allModules;
 
-  if (selectedSpecialization) {
-    const specTitleLower = selectedSpecialization.title.toLowerCase();
-    const catNameLower = (selectedCategory?.name || selectedSpecialization.categoryName || '').toLowerCase();
+    if (selectedSpecialization) {
+      const specTitleLower = selectedSpecialization.title.toLowerCase();
+      const catNameLower = (selectedCategory?.name || selectedSpecialization.categoryName || '').toLowerCase();
 
-    const matches = allModules.filter((m) => {
-      const modCatLower = (m.category || '').toLowerCase();
-      const modTitleLower = (m.title || '').toLowerCase();
-      
-      const hasDirectSpecId = m.specializationIds && Array.isArray(m.specializationIds) && (
-        m.specializationIds.includes(selectedSpecialization.id) ||
-        m.specializationIds.some(id => id.toLowerCase().trim() === selectedSpecialization.id.toLowerCase().trim())
-      );
+      const matches = allModules.filter((m) => {
+        const modCatLower = (m.category || '').toLowerCase();
+        const modTitleLower = (m.title || '').toLowerCase();
+        
+        const hasDirectSpecId = m.specializationIds && Array.isArray(m.specializationIds) && (
+          m.specializationIds.includes(selectedSpecialization.id) ||
+          m.specializationIds.some(id => id.toLowerCase().trim() === selectedSpecialization.id.toLowerCase().trim())
+        );
 
-      const hasDirectSpecName = m.specializationNames && Array.isArray(m.specializationNames) && (
-        m.specializationNames.some(name => 
-          name.toLowerCase().trim() === specTitleLower ||
-          specTitleLower.includes(name.toLowerCase().trim()) ||
-          name.toLowerCase().includes(specTitleLower)
-        )
-      );
+        const hasDirectSpecName = m.specializationNames && Array.isArray(m.specializationNames) && (
+          m.specializationNames.some(name => 
+            name.toLowerCase().trim() === specTitleLower ||
+            specTitleLower.includes(name.toLowerCase().trim()) ||
+            name.toLowerCase().includes(specTitleLower)
+          )
+        );
 
-      return (
-        hasDirectSpecId ||
-        hasDirectSpecName ||
-        modCatLower.includes(specTitleLower) ||
-        modTitleLower.includes(specTitleLower) ||
-        (catNameLower && modCatLower.includes(catNameLower))
-      );
-    });
+        return (
+          hasDirectSpecId ||
+          hasDirectSpecName ||
+          modCatLower.includes(specTitleLower) ||
+          modTitleLower.includes(specTitleLower) ||
+          (catNameLower && modCatLower.includes(catNameLower))
+        );
+      });
 
-    if (matches.length > 0) {
-      filteredModules = matches;
-    } else {
-      // Generate specialized modules dynamically for this specialization if no exact match exists
-      filteredModules = [
-        {
-          id: `mod-${selectedSpecialization.id}-2025`,
-          title: `Simulado Oficial de ${selectedSpecialization.title} 2025`,
-          year: 2025,
-          questionCount: 40,
-          badge: 'RECOMENDADO',
-          category: selectedSpecialization.title,
-        },
-        {
-          id: `mod-${selectedSpecialization.id}-2024`,
-          title: `Exame de Admissão de ${selectedSpecialization.title} 2024`,
-          year: 2024,
-          questionCount: 35,
-          badge: 'OFICIAL',
-          category: selectedSpecialization.title,
-        },
-        {
-          id: `mod-${selectedSpecialization.id}-aptidao`,
-          title: `Teste de Aptidão Profissional (${selectedSpecialization.title})`,
-          year: 2024,
-          questionCount: 30,
-          badge: 'ESPECIAL',
-          category: selectedSpecialization.title,
-        },
-      ];
+      if (matches.length > 0) {
+        baseList = matches;
+      } else {
+        // Generate specialized modules dynamically for this specialization if no exact match exists
+        baseList = [
+          {
+            id: `mod-${selectedSpecialization.id}-2025`,
+            title: `Simulado Oficial de ${selectedSpecialization.title} 2025`,
+            year: 2025,
+            questionCount: 40,
+            badge: 'RECOMENDADO',
+            category: selectedSpecialization.title,
+          },
+          {
+            id: `mod-${selectedSpecialization.id}-2024`,
+            title: `Exame de Admissão de ${selectedSpecialization.title} 2024`,
+            year: 2024,
+            questionCount: 35,
+            badge: 'OFICIAL',
+            category: selectedSpecialization.title,
+          },
+          {
+            id: `mod-${selectedSpecialization.id}-aptidao`,
+            title: `Teste de Aptidão Profissional (${selectedSpecialization.title})`,
+            year: 2024,
+            questionCount: 30,
+            badge: 'ESPECIAL',
+            category: selectedSpecialization.title,
+          },
+        ];
+      }
     }
-  }
+
+    // Sort in ascending alphabetical order (A-Z)
+    return [...baseList].sort((a, b) =>
+      (a.title || '').localeCompare(b.title || '', 'pt-AO', {
+        sensitivity: 'base',
+        numeric: true,
+      })
+    );
+  }, [allModules, selectedSpecialization, selectedCategory]);
+
+  const displayedModules = useMemo(() => {
+    if (!searchTerm.trim()) return sortedModules;
+    const term = searchTerm.toLowerCase().trim();
+    return sortedModules.filter(
+      (m) =>
+        (m.title || '').toLowerCase().includes(term) ||
+        (m.category || '').toLowerCase().includes(term) ||
+        (m.description || '').toLowerCase().includes(term) ||
+        String(m.year || '').includes(term)
+    );
+  }, [sortedModules, searchTerm]);
 
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-4xl mx-auto">
@@ -199,14 +222,25 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
       )}
 
       {/* Hero Header Section */}
-      <section className="mb-8">
-        <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight mb-2">
-          {selectedSpecialization
-            ? `Módulos: ${selectedSpecialization.title}`
-            : selectedCategory
-            ? `Módulos: ${selectedCategory.name}`
-            : 'Módulos de Teste'}
-        </h2>
+      <section className="mb-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+          <h2 className="text-3xl md:text-4xl font-extrabold text-slate-900 tracking-tight">
+            {selectedSpecialization
+              ? `Módulos: ${selectedSpecialization.title}`
+              : selectedCategory
+              ? `Módulos: ${selectedCategory.name}`
+              : 'Módulos de Teste'}
+          </h2>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1 px-3 py-1 bg-slate-100 text-slate-700 text-xs font-bold rounded-full border border-slate-200">
+              <span className="material-symbols-outlined text-xs text-blue-600">sort_by_alpha</span>
+              <span>Ordem A → Z</span>
+            </span>
+            <span className="inline-flex items-center px-2.5 py-1 bg-blue-50 text-blue-700 text-xs font-black rounded-full border border-blue-200">
+              {displayedModules.length} módulos
+            </span>
+          </div>
+        </div>
         <p className="text-slate-600 text-base md:text-lg leading-relaxed">
           {selectedSpecialization
             ? `Selecione um exame ou simulado de ${selectedSpecialization.title} para testar os seus conhecimentos.`
@@ -214,9 +248,57 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
         </p>
       </section>
 
-      {/* Grid of Test Modules */}
+      {/* Search Filter Bar (useful when there are many modules) */}
+      {sortedModules.length > 4 && (
+        <div className="mb-6">
+          <div className="relative">
+            <span className="material-symbols-outlined absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-lg">
+              search
+            </span>
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Pesquisar módulo pelo nome ou ano (ordem A-Z)..."
+              className="w-full bg-white border border-slate-200 rounded-2xl pl-10 pr-10 py-3 text-sm font-medium text-slate-800 placeholder-slate-400 shadow-xs outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+            />
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer p-1"
+                title="Limpar pesquisa"
+              >
+                <span className="material-symbols-outlined text-sm">close</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Empty State for Search */}
+      {displayedModules.length === 0 && (
+        <div className="bg-white rounded-3xl p-8 text-center border border-dashed border-slate-300 space-y-3 mb-8">
+          <div className="w-14 h-14 rounded-2xl bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+            <span className="material-symbols-outlined text-3xl">search_off</span>
+          </div>
+          <h3 className="text-lg font-bold text-slate-800">Nenhum módulo encontrado</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto">
+            Não encontramos nenhum módulo com o termo &quot;{searchTerm}&quot;. Tente pesquisar por outro nome ou limpe a busca.
+          </p>
+          <button
+            type="button"
+            onClick={() => setSearchTerm('')}
+            className="px-4 py-2 bg-blue-600 text-white text-xs font-bold rounded-xl hover:bg-blue-700 transition-colors cursor-pointer"
+          >
+            Limpar Pesquisa
+          </button>
+        </div>
+      )}
+
+      {/* Grid of Test Modules in Ascending Alphabetical Order (A-Z) */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredModules.map((test, index) => (
+        {displayedModules.map((test, index) => (
           <div
             key={`mod-item-${test.id}-${index}`}
             onClick={() => handleModuleClick(test)}
