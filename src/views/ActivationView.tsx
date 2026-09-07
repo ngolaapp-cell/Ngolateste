@@ -11,6 +11,7 @@ interface ActivationViewProps {
   onNavigate: (screen: Screen) => void;
   onSelectSpecialization?: (spec: Specialization | null) => void;
   onActivationSuccess: (code: string, days: number, specializationId?: string, specializationTitle?: string) => void;
+  onBack?: () => void;
 }
 
 export const ActivationView: React.FC<ActivationViewProps> = ({
@@ -20,6 +21,7 @@ export const ActivationView: React.FC<ActivationViewProps> = ({
   onNavigate,
   onSelectSpecialization,
   onActivationSuccess,
+  onBack,
 }) => {
   const allSpecs = specializations && specializations.length > 0 ? specializations : SPECIALIZATIONS;
   
@@ -151,7 +153,7 @@ export const ActivationView: React.FC<ActivationViewProps> = ({
       {/* Back Button & Breadcrumb */}
       <div className="mb-6 flex items-center justify-between flex-wrap gap-3">
         <button
-          onClick={() => onNavigate(currentSpec ? 'categories' : 'home')}
+          onClick={onBack || (() => onNavigate(currentSpec ? 'categories' : 'home'))}
           className="text-slate-600 hover:text-blue-600 transition-colors flex items-center text-xs font-bold gap-1 cursor-pointer bg-white px-4 py-2.5 rounded-xl border border-slate-200 shadow-sm"
         >
           <span className="material-symbols-outlined text-base">arrow_back</span>

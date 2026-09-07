@@ -8,9 +8,15 @@ interface LoginViewProps {
   onNavigate: (screen: Screen) => void;
   onLoginSuccess: (user: UserProfile) => void;
   canGoBack?: boolean;
+  onBack?: () => void;
 }
 
-export const LoginView: React.FC<LoginViewProps> = ({ onNavigate, onLoginSuccess, canGoBack = false }) => {
+export const LoginView: React.FC<LoginViewProps> = ({
+  onNavigate,
+  onLoginSuccess,
+  canGoBack = false,
+  onBack,
+}) => {
   const [loginMethod, setLoginMethod] = useState<'phone' | 'email'>('phone');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -149,7 +155,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onNavigate, onLoginSuccess
       {canGoBack && (
         <div className="fixed top-0 left-0 p-6 z-20">
           <button
-            onClick={() => onNavigate('home')}
+            onClick={onBack || (() => onNavigate('home'))}
             className="p-2.5 rounded-full text-slate-600 hover:bg-slate-200/60 transition-colors cursor-pointer flex items-center justify-center bg-white shadow-sm border border-slate-200/60"
             aria-label="Voltar"
           >

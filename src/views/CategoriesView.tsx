@@ -13,6 +13,7 @@ interface CategoriesViewProps {
   onNavigate: (screen: Screen) => void;
   onSelectCategory?: (category: Category | null) => void;
   onSelectSpecialization: (spec: Specialization) => void;
+  onBack?: () => void;
 }
 
 export const CategoriesView: React.FC<CategoriesViewProps> = ({
@@ -24,10 +25,15 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   onNavigate,
   onSelectCategory,
   onSelectSpecialization,
+  onBack,
 }) => {
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<string>(
     selectedCategory ? selectedCategory.id : 'all'
   );
+
+  React.useEffect(() => {
+    setActiveCategoryFilter(selectedCategory ? selectedCategory.id : 'all');
+  }, [selectedCategory]);
 
   const displayCategories = categories;
   const allSpecs = specializations;
@@ -82,11 +88,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       <header className="mb-8">
         <div className="flex items-center gap-2 mb-2">
           <button
-            onClick={() => onNavigate('home')}
+            onClick={onBack || (() => onNavigate('home'))}
             className="text-slate-500 hover:text-blue-600 transition-colors flex items-center text-xs font-bold gap-1 cursor-pointer"
           >
             <span className="material-symbols-outlined text-base">arrow_back</span>
-            <span>Página Inicial</span>
+            <span>{currentCategoryName ? 'Voltar' : 'Página Inicial'}</span>
           </button>
           {currentCategoryName && (
             <>

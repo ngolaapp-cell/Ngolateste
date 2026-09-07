@@ -12,6 +12,7 @@ interface TestModulesViewProps {
   userProfile?: UserProfile;
   onNavigate: (screen: Screen) => void;
   onStartExamModule: (module: TestModule) => void;
+  onBack?: () => void;
 }
 
 export const TestModulesView: React.FC<TestModulesViewProps> = ({
@@ -22,6 +23,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
   userProfile,
   onNavigate,
   onStartExamModule,
+  onBack,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const allModules = modules;
@@ -137,7 +139,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
       {/* Back Navigation & Breadcrumb */}
       <div className="flex items-center justify-between mb-4">
         <button
-          onClick={() => onNavigate('categories')}
+          onClick={onBack || (() => onNavigate('categories'))}
           className="text-slate-600 hover:text-blue-600 transition-colors flex items-center gap-1.5 text-xs font-bold bg-white px-3.5 py-2 rounded-xl border border-slate-200 shadow-sm cursor-pointer"
         >
           <span className="material-symbols-outlined text-sm">arrow_back</span>

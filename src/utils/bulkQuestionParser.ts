@@ -1,4 +1,5 @@
 import { Question } from '../types';
+import { extractQuestionMedia } from './questionMedia';
 
 export function parseBulkQuestionsText(
   rawText: string,
@@ -46,7 +47,8 @@ function parseJsonQuestions(text: string, defaultCategory: string, defaultBanca:
           options.push(`Opção ${String.fromCharCode(65 + options.length)}`);
         }
 
-        const statement = item.statement || item.pergunta || item.enunciado || item.question || `Questão ${index + 1}`;
+        const rawStatement = item.statement || item.pergunta || item.enunciado || item.question || `Questão ${index + 1}`;
+        const media = extractQuestionMedia(rawStatement, item.imageUrl || item.image || item.imagem);
         const gabaritoRaw = item.correctIndex ?? item.gabarito ?? item.resposta ?? item.answer ?? null;
         const fallbackIdx = (index * 3 + 1) % 4; // Rotates: 1 (B), 0 (A), 3 (D), 2 (C)
 
@@ -55,7 +57,8 @@ function parseJsonQuestions(text: string, defaultCategory: string, defaultBanca:
           moduleId: moduleId || item.moduleId || '',
           category: item.category || defaultCategory || 'Concurso Público',
           banca: item.banca || defaultBanca || 'NgolaTeste',
-          statement,
+          statement: media.cleanStatement || rawStatement,
+          imageUrl: media.primaryImageUrl,
           options: options.slice(0, 4),
           correctIndex: parseLetterOrIndex(gabaritoRaw, options, fallbackIdx),
           explanation: item.explanation || item.explicacao || item.comentario || `Gabarito verificado`,
@@ -126,12 +129,14 @@ function parseCsvQuestions(text: string, defaultCategory: string, defaultBanca: 
       const finalCorrectIndex = parseLetterOrIndex(gabaritoRaw, options, fallbackIdx);
 
       if (statement && statement.length >= 2) {
+        const media = extractQuestionMedia(statement);
         results.push({
           id: `csv-${Date.now()}-${i}`,
           moduleId: moduleId || '',
           category: defaultCategory,
           banca: defaultBanca,
-          statement,
+          statement: media.cleanStatement || statement,
+          imageUrl: media.primaryImageUrl,
           options: options.slice(0, 4),
           correctIndex: finalCorrectIndex,
           explanation: explanation || `Gabarito oficial (${String.fromCharCode(65 + finalCorrectIndex)})`
@@ -207,6 +212,7 @@ function parseBlockQuestions(text: string, defaultCategory: string, defaultBanca
     if (blockLines.length === 0) return;
 
     let statement = '';
+    let blockImageUrl: string | undefined = undefined;
     const options: string[] = [];
     let gabaritoRaw: string | null = null;
     let explanation = '';
@@ -216,8 +222,11 @@ function parseBlockQuestions(text: string, defaultCategory: string, defaultBanca
       const optionMatch = /^([a-d1-4])[\.\)\-\:]\s*(.+)/i.exec(line);
       const answerMatch = /^(resposta|gabarito|correta|r)[\:\=]\s*(.+)/i.exec(line);
       const explMatch = /^(explica[çc][ãa]o|coment[áa]rio|nota|fundamenta[çc][ãa]o)[\:\=]\s*(.+)/i.exec(line);
+      const imgMatch = /^(imagem|foto|img|image|imagem_url)[\:\=]\s*(.+)/i.exec(line);
 
-      if (answerMatch) {
+      if (imgMatch) {
+        blockImageUrl = imgMatch[2].trim();
+      } else if (answerMatch) {
         gabaritoRaw = answerMatch[2].trim();
       } else if (explMatch) {
         explanation = explMatch[2].trim();
@@ -241,13 +250,15 @@ function parseBlockQuestions(text: string, defaultCategory: string, defaultBanca
       }
 
       const finalCorrectIdx = parseLetterOrIndex(gabaritoRaw, options, fallbackIdx);
+      const media = extractQuestionMedia(statement, blockImageUrl);
 
       parsedQuestions.push({
         id: `block-${Date.now()}-${idx}`,
         moduleId: moduleId || '',
         category: defaultCategory,
         banca: defaultBanca,
-        statement,
+        statement: media.cleanStatement || statement,
+        imageUrl: media.primaryImageUrl,
         options: options.slice(0, 4),
         correctIndex: finalCorrectIdx,
         explanation: explanation || `Gabarito oficial (${String.fromCharCode(65 + finalCorrectIdx)})`
@@ -281,13 +292,15 @@ function parseLineGroupQuestions(text: string, defaultCategory: string, defaultB
       }
 
       const finalCorrectIdx = parseLetterOrIndex(gabaritoRaw, options, fallbackIdx);
+      const media = extractQuestionMedia(statement);
 
       results.push({
         id: `line-${Date.now()}-${results.length}`,
         moduleId: moduleId || '',
         category: defaultCategory,
         banca: defaultBanca,
-        statement,
+        statement: media.cleanStatement || statement,
+        imageUrl: media.primaryImageUrl,
         options,
         correctIndex: finalCorrectIdx,
         explanation: explanation || `Gabarito verificado (${String.fromCharCode(65 + finalCorrectIdx)})`

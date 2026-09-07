@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, Question, ExamResult } from '../types';
+import { QuestionStatementContent, OptionContent } from '../components/QuestionStatementContent';
+import { extractQuestionMedia } from '../utils/questionMedia';
+import { QuestionImageViewer } from '../components/QuestionImageViewer';
 
 interface ExamViewProps {
   questions: Question[];
   categoryTitle?: string;
   onNavigate: (screen: Screen) => void;
   onFinishExam: (result: ExamResult) => void;
+  onBack?: () => void;
 }
 
 export const ExamView: React.FC<ExamViewProps> = ({
@@ -13,6 +17,7 @@ export const ExamView: React.FC<ExamViewProps> = ({
   categoryTitle = 'Simulado de Concurso',
   onNavigate,
   onFinishExam,
+  onBack,
 }) => {
   const QUESTION_TIME_LIMIT = 60; // 60 seconds (1 minute) per question
 
@@ -168,7 +173,7 @@ export const ExamView: React.FC<ExamViewProps> = ({
       <header className="fixed top-0 w-full z-50 bg-[#F0F7FF]/90 backdrop-blur-md flex justify-between items-center px-6 py-4 border-b border-blue-50">
         <div className="flex items-center gap-4">
           <button
-            onClick={() => onNavigate('tests')}
+            onClick={onBack || (() => onNavigate('tests'))}
             className="p-2 rounded-full hover:bg-blue-100/50 transition-colors active:scale-95 duration-150 flex items-center justify-center cursor-pointer text-blue-700"
             aria-label="Sair do Teste"
           >
@@ -260,10 +265,12 @@ export const ExamView: React.FC<ExamViewProps> = ({
               )}
             </div>
 
-            {/* Question Enunciado */}
-            <h2 className="text-xl md:text-2xl font-extrabold text-slate-900 leading-snug mb-8">
-              {currentQuestion.statement}
-            </h2>
+            {/* Question Statement and Media */}
+            <QuestionStatementContent
+              question={currentQuestion}
+              headingClassName="text-xl md:text-2xl font-extrabold text-slate-900 leading-snug mb-8"
+              imagePosition="before"
+            />
 
             {/* Options List */}
             <div className="space-y-3.5">
@@ -318,9 +325,10 @@ export const ExamView: React.FC<ExamViewProps> = ({
                     >
                       {letter}
                     </span>
-                    <p className={`text-sm md:text-base leading-relaxed font-medium flex-grow ${textStyle}`}>
-                      {optionText}
-                    </p>
+                    <OptionContent
+                      optionText={optionText}
+                      textClassName={textStyle}
+                    />
                     {statusIcon}
                   </button>
                 );
@@ -350,9 +358,23 @@ export const ExamView: React.FC<ExamViewProps> = ({
                       : 'Resposta Incorreta! Gabarito Comentado:'}
                   </span>
                 </div>
-                <p className="text-xs md:text-sm font-medium leading-relaxed">
-                  {currentQuestion.explanation || 'Gabarito verificado pela comissão do concurso.'}
-                </p>
+                {(() => {
+                  const explMedia = extractQuestionMedia(currentQuestion.explanation || '');
+                  return (
+                    <div className="space-y-3">
+                      {explMedia.hasImages && (
+                        <div className="my-2">
+                          {explMedia.imageUrls.map((imgUrl, i) => (
+                            <QuestionImageViewer key={i} imageUrl={imgUrl} altText="Imagem explicativa do gabarito" />
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs md:text-sm font-medium leading-relaxed">
+                        {explMedia.cleanStatement || 'Gabarito verificado pela comissão do concurso.'}
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

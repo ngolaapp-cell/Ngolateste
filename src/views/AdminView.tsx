@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Screen, Question, TestModule, Category, Specialization, UserProfile, AdminAnnouncement } from '../types';
 import { parseBulkQuestionsText } from '../utils/bulkQuestionParser';
+import { extractQuestionMedia } from '../utils/questionMedia';
+import { QuestionImageViewer } from '../components/QuestionImageViewer';
 import { isFreeStatusTag } from '../utils/accessControl';
 import { SPECIALIZATIONS } from '../data/mockData';
 import { isSupabaseConfigured, getSupabaseConfig, resetSupabaseClient, sanitizeSupabaseUrl, sanitizeSupabaseKey } from '../lib/supabase';
@@ -57,6 +59,7 @@ const EditableQuestionCard: React.FC<EditableQuestionCardProps> = ({
   onDelete,
 }) => {
   const [statement, setStatement] = useState(question.statement);
+  const [imageUrl, setImageUrl] = useState(question.imageUrl || '');
   const [options, setOptions] = useState<string[]>(question.options || ['', '', '', '']);
   const [correctIndex, setCorrectIndex] = useState<number>(question.correctIndex || 0);
   const [explanation, setExplanation] = useState(question.explanation || '');
@@ -65,10 +68,16 @@ const EditableQuestionCard: React.FC<EditableQuestionCardProps> = ({
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
+  // Detect any image link in statement or imageUrl
+  const detectedMedia = extractQuestionMedia(statement, imageUrl);
+  const hasUrlInStatement = detectedMedia.cleanStatement !== statement && detectedMedia.primaryImageUrl;
+
   const handleSave = () => {
+    const finalImageUrl = imageUrl.trim() || detectedMedia.primaryImageUrl || undefined;
     const updated: Question = {
       ...question,
       statement,
+      imageUrl: finalImageUrl,
       options,
       correctIndex,
       explanation,
@@ -83,6 +92,13 @@ const EditableQuestionCard: React.FC<EditableQuestionCardProps> = ({
     const next = [...options];
     next[optIdx] = val;
     setOptions(next);
+  };
+
+  const handleSeparateImageFromStatement = () => {
+    if (detectedMedia.primaryImageUrl) {
+      setImageUrl(detectedMedia.primaryImageUrl);
+      setStatement(detectedMedia.cleanStatement);
+    }
   };
 
   return (
@@ -152,9 +168,70 @@ const EditableQuestionCard: React.FC<EditableQuestionCardProps> = ({
           rows={2}
           value={statement}
           onChange={(e) => setStatement(e.target.value)}
+          placeholder="Digite o texto da pergunta..."
           className="w-full bg-white border border-slate-200 rounded-xl p-3 text-xs font-bold text-slate-900 outline-none focus:ring-2 focus:ring-blue-500/20"
         />
+
+        {/* Suggestion to separate image from statement if pasted together */}
+        {hasUrlInStatement && (
+          <div className="mt-2 bg-blue-50 border border-blue-200 rounded-xl p-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-[11px] text-blue-900 font-bold">
+              <span className="material-symbols-outlined text-sm text-blue-600">image</span>
+              <span>Link de imagem do Supabase detectado dentro do enunciado!</span>
+            </div>
+            <button
+              type="button"
+              onClick={handleSeparateImageFromStatement}
+              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1"
+            >
+              <span className="material-symbols-outlined text-xs">auto_fix_high</span>
+              Mover para campo de imagem
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* Image URL input */}
+      <div>
+        <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+          <span className="flex items-center gap-1">
+            <span className="material-symbols-outlined text-xs text-blue-600">add_photo_alternate</span>
+            URL da Imagem da Questão (Supabase Storage, CDN ou Web)
+          </span>
+          {imageUrl && (
+            <button
+              type="button"
+              onClick={() => setImageUrl('')}
+              className="text-red-600 hover:text-red-700 text-[10px] font-bold cursor-pointer"
+            >
+              Remover imagem
+            </button>
+          )}
+        </label>
+        <input
+          type="url"
+          value={imageUrl}
+          onChange={(e) => setImageUrl(e.target.value)}
+          placeholder="Ex: https://[projeto].supabase.co/storage/v1/object/public/[bucket]/[imagem].png"
+          className="w-full bg-white border border-slate-200 rounded-xl p-2.5 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
+        />
+      </div>
+
+      {/* Image Preview if available */}
+      {detectedMedia.primaryImageUrl && (
+        <div className="rounded-xl border border-slate-200 bg-white p-3 space-y-2">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-700">
+            <span className="flex items-center gap-1 text-emerald-700">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+              Imagem Carregada (Visualização no Exame)
+            </span>
+            <span className="text-[10px] text-slate-400 font-normal">Candidato poderá dar zoom</span>
+          </div>
+          <div className="max-w-md">
+            <QuestionImageViewer imageUrl={detectedMedia.primaryImageUrl} altText="Prévia da imagem da questão" />
+          </div>
+        </div>
+      )}
 
       <div>
         <label className="block text-[11px] font-bold text-slate-700 mb-1">
@@ -253,6 +330,7 @@ interface AdminViewProps {
   adminRecoveryEmail?: string;
   onUpdateAdminRecoveryEmail?: (newEmail: string) => void;
   onLockAdmin?: () => void;
+  onBack?: () => void;
 }
 
 export const AdminView: React.FC<AdminViewProps> = ({
@@ -278,6 +356,7 @@ export const AdminView: React.FC<AdminViewProps> = ({
   adminRecoveryEmail = 'ngolaapp@gmail.com',
   onUpdateAdminRecoveryEmail,
   onLockAdmin,
+  onBack,
 }) => {
   const [activeTab, setActiveTab] = useState<'modules' | 'categories' | 'specializations' | 'bulk' | 'codes' | 'announcements' | 'stats' | 'security' | 'supabase'>('modules');
   const [newAdminPasswordInput, setNewAdminPasswordInput] = useState('');
@@ -1572,7 +1651,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
           </div>
         </div>
         <button
-          onClick={() => onNavigate('home')}
+          onClick={onBack || (() => onNavigate('home'))}
           className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-xl text-slate-700 cursor-pointer font-bold text-xs flex items-center gap-1.5 transition-all"
         >
           <span className="material-symbols-outlined text-sm">arrow_back</span>
@@ -3818,6 +3897,69 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                           placeholder="Digite o enunciado da pergunta..."
                         />
                       </div>
+
+                      {/* Image URL & Preview */}
+                      {(() => {
+                        const media = extractQuestionMedia(q.statement, q.imageUrl);
+                        return (
+                          <div className="space-y-2">
+                            {media.cleanStatement !== q.statement && media.primaryImageUrl && (
+                              <div className="bg-blue-50 border border-blue-200 rounded-xl p-2.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
+                                <div className="flex items-center gap-1.5 text-[11px] text-blue-900 font-bold">
+                                  <span className="material-symbols-outlined text-sm text-blue-600">image</span>
+                                  <span>Link de imagem detectado no enunciado!</span>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    handleUpdatePreviewQuestion(i, 'statement', media.cleanStatement);
+                                    handleUpdatePreviewQuestion(i, 'imageUrl', media.primaryImageUrl);
+                                  }}
+                                  className="px-2 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-[10px] font-bold transition-all shadow-xs cursor-pointer flex items-center gap-1"
+                                >
+                                  <span className="material-symbols-outlined text-xs">auto_fix_high</span>
+                                  Mover para campo de imagem
+                                </button>
+                              </div>
+                            )}
+
+                            <div>
+                              <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center justify-between">
+                                <span className="flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-xs text-blue-600">add_photo_alternate</span>
+                                  URL da Imagem da Questão (opcional)
+                                </span>
+                                {q.imageUrl && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdatePreviewQuestion(i, 'imageUrl', '')}
+                                    className="text-red-600 hover:text-red-700 text-[10px] font-bold cursor-pointer"
+                                  >
+                                    Remover imagem
+                                  </button>
+                                )}
+                              </label>
+                              <input
+                                type="url"
+                                value={q.imageUrl || ''}
+                                onChange={(e) => handleUpdatePreviewQuestion(i, 'imageUrl', e.target.value)}
+                                placeholder="Link da imagem no Supabase: https://...supabase.co/storage/v1/object/public/..."
+                                className="w-full bg-white border border-slate-200 rounded-xl p-2 text-xs font-mono text-slate-800 outline-none focus:ring-2 focus:ring-blue-500/20"
+                              />
+                            </div>
+
+                            {media.primaryImageUrl && (
+                              <div className="rounded-xl border border-slate-200 bg-white p-2.5 max-w-sm">
+                                <div className="text-[10px] font-bold text-emerald-700 mb-1 flex items-center gap-1">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                  Imagem Vinculada
+                                </div>
+                                <QuestionImageViewer imageUrl={media.primaryImageUrl} altText="Prévia da questão" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Options List */}
                       <div>

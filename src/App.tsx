@@ -44,6 +44,7 @@ import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
 import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked, checkHasFullPlatformAccess } from './utils/accessControl';
 import { updateAppBadge, sendNativeNotification } from './utils/badgeManager';
+import { AppNavState, pushNavHistory, replaceNavHistory, parseNavFromHash } from './utils/navigationHistory';
 
 export function App() {
   // Check if a registered user session exists
@@ -64,10 +65,42 @@ export function App() {
 
   const storedUser = getStoredUser();
 
-  // First-time visit: opens login page directly. If logged in previously, opens home.
-  const [currentScreen, setCurrentScreen] = useState<Screen>(() => {
-    return storedUser ? 'home' : 'login';
-  });
+  // Navigation state restoration from history or hash
+  const getInitialNav = (): { screen: Screen; categoryId?: string | null; specializationId?: string | null } => {
+    const isAuthed = Boolean(storedUser && (storedUser.phone?.trim() || storedUser.email?.trim()));
+    if (typeof window !== 'undefined') {
+      const state = window.history.state as AppNavState | null;
+      if (state && state.screen) {
+        if (!isAuthed && state.screen !== 'login' && state.screen !== 'admin') {
+          return { screen: 'login' };
+        }
+        return {
+          screen: state.screen,
+          categoryId: state.categoryId,
+          specializationId: state.specializationId,
+        };
+      }
+      if (window.location.hash) {
+        const parsed = parseNavFromHash(window.location.hash);
+        if (parsed) {
+          if (!isAuthed && parsed.screen !== 'login' && parsed.screen !== 'admin') {
+            return { screen: 'login' };
+          }
+          return parsed;
+        }
+      }
+    }
+    return { screen: storedUser ? 'home' : 'login' };
+  };
+
+  const initialNav = React.useMemo(() => getInitialNav(), []);
+
+  // First-time visit: opens login page directly. If logged in previously, opens home or restored screen.
+  const [currentScreen, setCurrentScreen] = useState<Screen>(initialNav.screen);
+  const navStepCountRef = React.useRef<number>(0);
+  const lastBackPressRef = React.useRef<number>(0);
+  const [showExitToast, setShowExitToast] = useState<boolean>(false);
+  const exitToastTimeoutRef = React.useRef<any>(null);
 
   const [userProfile, setUserProfile] = useState<UserProfile>(() => {
     return (
@@ -323,28 +356,232 @@ export function App() {
   const [lastExamModule, setLastExamModule] = useState<TestModule | null>(null);
   const [lastExamResult, setLastExamResult] = useState<ExamResult | null>(null);
 
+  // Synchronize initial browser history entry if not already set
+  useEffect(() => {
+    const state = typeof window !== 'undefined' ? (window.history.state as AppNavState | null) : null;
+    if (!state || !state.screen) {
+      replaceNavHistory({
+        screen: currentScreen,
+        categoryId: selectedCategory?.id || initialNav.categoryId || null,
+        specializationId: selectedSpecialization?.id || initialNav.specializationId || null,
+        stepIndex: 0,
+      });
+    } else {
+      navStepCountRef.current = state.stepIndex || 0;
+    }
+  }, []);
+
+  // Sync category / specialization if restored from history / hash
+  useEffect(() => {
+    const state = typeof window !== 'undefined' ? (window.history.state as AppNavState | null) : null;
+    const catId = state?.categoryId || initialNav.categoryId;
+    const specId = state?.specializationId || initialNav.specializationId;
+
+    if (catId && categories.length > 0 && !selectedCategory) {
+      const foundCat = categories.find(
+        (c) => c.id.toLowerCase() === catId.toLowerCase() || c.name.toLowerCase() === catId.toLowerCase()
+      );
+      if (foundCat) setSelectedCategory(foundCat);
+    }
+
+    if (specId && specializations.length > 0 && !selectedSpecialization) {
+      const foundSpec = specializations.find(
+        (s) => s.id.toLowerCase() === specId.toLowerCase() || s.title.toLowerCase() === specId.toLowerCase()
+      );
+      if (foundSpec) setSelectedSpecialization(foundSpec);
+    }
+  }, [categories, specializations]);
+
+  // Handle Browser / Native Phone Back and Forward Navigation (popstate)
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      const state = e.state as AppNavState | null;
+
+      if (state && state.screen) {
+        navStepCountRef.current = state.stepIndex ?? Math.max(0, navStepCountRef.current - 1);
+
+        if (!isUserAuthenticated && state.screen !== 'login' && state.screen !== 'admin') {
+          setCurrentScreen('login');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          return;
+        }
+
+        if (state.screen === 'admin' && !isAdminAuthenticated) {
+          setShowAdminModal(true);
+          return;
+        }
+
+        setCurrentScreen(state.screen);
+
+        if (state.categoryId) {
+          const cat = categories.find((c) => c.id === state.categoryId) || null;
+          setSelectedCategory(cat);
+        } else {
+          setSelectedCategory(null);
+        }
+
+        if (state.specializationId) {
+          const spec = specializations.find((s) => s.id === state.specializationId) || null;
+          setSelectedSpecialization(spec);
+        } else {
+          setSelectedSpecialization(null);
+        }
+
+        if (state.testTitle) {
+          setActiveTestTitle(state.testTitle);
+        }
+
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        // Popped to root / initial entry
+        const isCurrentlyHome = currentScreen === 'home' || currentScreen === 'login';
+
+        if (isCurrentlyHome) {
+          // Double-back-to-exit protection on phone / mobile browser
+          const now = Date.now();
+          if (now - lastBackPressRef.current < 2500) {
+            // Allow exit/close
+            return;
+          }
+
+          // First back tap on root screen: show prompt and re-arm
+          lastBackPressRef.current = now;
+          setShowExitToast(true);
+          if (exitToastTimeoutRef.current) clearTimeout(exitToastTimeoutRef.current);
+          exitToastTimeoutRef.current = setTimeout(() => setShowExitToast(false), 2500);
+
+          pushNavHistory({
+            screen: isUserAuthenticated ? 'home' : 'login',
+            stepIndex: 0,
+          });
+          return;
+        }
+
+        // Stepped back to root from an inner screen
+        navStepCountRef.current = 0;
+        const targetScreen: Screen = isUserAuthenticated ? 'home' : 'login';
+        setCurrentScreen(targetScreen);
+        setSelectedCategory(null);
+        setSelectedSpecialization(null);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [categories, specializations, isUserAuthenticated, isAdminAuthenticated, currentScreen]);
+
   // Navigation handlers
-  const handleNavigate = (screen: Screen) => {
-    // If not authenticated and trying to access any screen other than login or admin, force login
-    if (!isUserAuthenticated && screen !== 'login' && screen !== 'admin') {
+  const handleNavigate = useCallback(
+    (
+      screen: Screen,
+      options?: {
+        category?: Category | null;
+        specialization?: Specialization | null;
+        testTitle?: string;
+        replace?: boolean;
+      }
+    ) => {
+      // If not authenticated and trying to access any screen other than login or admin, force login
+      if (!isUserAuthenticated && screen !== 'login' && screen !== 'admin') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        setCurrentScreen('login');
+        replaceNavHistory({ screen: 'login', stepIndex: 0 });
+        return;
+      }
+
+      if (screen === 'admin' && !isAdminAuthenticated) {
+        setShowAdminModal(true);
+        return;
+      }
+
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      setCurrentScreen('login');
+      setCurrentScreen(screen);
+
+      let nextCat = selectedCategory;
+      if (options && 'category' in options) {
+        nextCat = options.category ?? null;
+        setSelectedCategory(nextCat);
+      } else if (screen === 'home') {
+        nextCat = null;
+        setSelectedCategory(null);
+      }
+
+      let nextSpec = selectedSpecialization;
+      if (options && 'specialization' in options) {
+        nextSpec = options.specialization ?? null;
+        setSelectedSpecialization(nextSpec);
+      } else if (screen === 'home' || (screen === 'categories' && (!options || !('specialization' in options)))) {
+        nextSpec = null;
+        setSelectedSpecialization(null);
+      }
+
+      const nextTestTitle = options?.testTitle || activeTestTitle;
+      if (options?.testTitle) {
+        setActiveTestTitle(options.testTitle);
+      }
+
+      if (options?.replace) {
+        replaceNavHistory({
+          screen,
+          categoryId: nextCat?.id || null,
+          specializationId: nextSpec?.id || null,
+          testTitle: nextTestTitle,
+          stepIndex: navStepCountRef.current,
+        });
+      } else {
+        navStepCountRef.current += 1;
+        pushNavHistory({
+          screen,
+          categoryId: nextCat?.id || null,
+          specializationId: nextSpec?.id || null,
+          testTitle: nextTestTitle,
+          stepIndex: navStepCountRef.current,
+        });
+      }
+    },
+    [isUserAuthenticated, isAdminAuthenticated, selectedCategory, selectedSpecialization, activeTestTitle]
+  );
+
+  const handleBack = useCallback(() => {
+    if (navStepCountRef.current > 0) {
+      window.history.back();
       return;
     }
 
-    if (screen === 'admin' && !isAdminAuthenticated) {
-      setShowAdminModal(true);
-      return;
+    // Fallback if at step 0 or accessed directly
+    if (currentScreen === 'categories') {
+      if (selectedCategory) {
+        handleNavigate('categories', { category: null });
+      } else {
+        handleNavigate('home');
+      }
+    } else if (currentScreen === 'tests') {
+      handleNavigate('categories', { category: selectedCategory });
+    } else if (currentScreen === 'exam') {
+      handleNavigate('tests', { category: selectedCategory, specialization: selectedSpecialization });
+    } else if (currentScreen === 'result') {
+      handleNavigate('tests', { category: selectedCategory, specialization: selectedSpecialization });
+    } else if (currentScreen === 'activation') {
+      if (selectedSpecialization) {
+        handleNavigate('categories', { category: selectedCategory });
+      } else {
+        handleNavigate('home');
+      }
+    } else if (currentScreen === 'profile' || currentScreen === 'admin') {
+      handleNavigate('home');
+    } else if (currentScreen === 'login') {
+      if (isUserAuthenticated) handleNavigate('home');
+    } else {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setCurrentScreen(screen);
-  };
+  }, [currentScreen, selectedCategory, selectedSpecialization, isUserAuthenticated, handleNavigate]);
 
   const handleCategoryClick = (cat: Category | null) => {
-    setSelectedCategory(cat);
-    setSelectedSpecialization(null);
-    handleNavigate('categories');
+    handleNavigate('categories', {
+      category: cat,
+      specialization: null,
+    });
   };
 
   const isCategoryFree = (catIdOrName?: string) => {
@@ -362,8 +599,6 @@ export function App() {
   };
 
   const handleSpecializationClick = (spec: Specialization) => {
-    setSelectedSpecialization(spec);
-
     // Find parent category to sync selectedCategory
     const normSpecCatId = (spec.categoryId || '').toLowerCase().trim();
     const normSpecCatName = (spec.categoryName || '').toLowerCase().trim();
@@ -373,21 +608,19 @@ export function App() {
         (normSpecCatName && (c.name.toLowerCase().trim() === normSpecCatName || c.id.toLowerCase().trim() === normSpecCatName)) ||
         (selectedCategory && selectedCategory.id === c.id)
     );
-    if (parentCategory) {
-      setSelectedCategory(parentCategory);
-    }
+    const targetCategory = parentCategory || selectedCategory;
 
     const isUnlocked = checkHasFullPlatformAccess(userProfile) || checkIsSpecializationUnlocked(
       spec,
       userProfile,
       categories,
-      parentCategory || selectedCategory
+      targetCategory
     );
 
     if (isUnlocked) {
-      handleNavigate('tests');
+      handleNavigate('tests', { category: targetCategory, specialization: spec });
     } else {
-      handleNavigate('activation');
+      handleNavigate('activation', { category: targetCategory, specialization: spec });
     }
   };
 
@@ -623,8 +856,7 @@ export function App() {
     if (lastExamQuestions && lastExamQuestions.length > 0) {
       setActiveQuestions(lastExamQuestions);
       setActiveTestTitle(lastExamTitle || 'Simulado');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      setCurrentScreen('exam');
+      handleNavigate('exam', { testTitle: lastExamTitle || 'Simulado' });
     } else if (lastExamModule) {
       handleStartExamModule(lastExamModule);
     } else {
@@ -806,8 +1038,7 @@ export function App() {
       totalTestsTaken: 0,
       averageScore: 0,
     });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    setCurrentScreen('login');
+    handleNavigate('login', { replace: true });
   };
 
 
@@ -819,7 +1050,7 @@ export function App() {
           currentScreen={currentScreen}
           onNavigate={handleNavigate}
           showBack={currentScreen !== 'home'}
-          onBack={() => handleNavigate('home')}
+          onBack={handleBack}
           showSearch={currentScreen === 'home' || currentScreen === 'tests'}
           onSearchClick={() => handleNavigate('categories')}
           unreadCount={unreadAnnouncementsCount}
@@ -849,6 +1080,7 @@ export function App() {
             onNavigate={handleNavigate}
             onSelectCategory={(cat) => setSelectedCategory(cat)}
             onSelectSpecialization={handleSpecializationClick}
+            onBack={handleBack}
           />
         )}
 
@@ -861,6 +1093,7 @@ export function App() {
             userProfile={userProfile}
             onNavigate={handleNavigate}
             onStartExamModule={handleStartExamModule}
+            onBack={handleBack}
           />
         )}
 
@@ -870,6 +1103,7 @@ export function App() {
             categoryTitle={activeTestTitle}
             onNavigate={handleNavigate}
             onFinishExam={handleFinishExam}
+            onBack={handleBack}
           />
         )}
 
@@ -904,6 +1138,7 @@ export function App() {
             onNavigate={handleNavigate}
             onSelectSpecialization={(spec) => setSelectedSpecialization(spec)}
             onActivationSuccess={handleActivationSuccess}
+            onBack={handleBack}
           />
         )}
 
@@ -911,11 +1146,11 @@ export function App() {
           <LoginView
             onNavigate={handleNavigate}
             canGoBack={isUserAuthenticated}
+            onBack={handleBack}
             onLoginSuccess={(userData) => {
               setUserProfile(userData);
               localStorage.setItem('ngola_current_user', JSON.stringify(userData));
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-              setCurrentScreen('home');
+              handleNavigate('home', { replace: true });
             }}
           />
         )}
@@ -958,6 +1193,7 @@ export function App() {
             adminRecoveryEmail={adminRecoveryEmail}
             onUpdateAdminRecoveryEmail={handleUpdateAdminRecoveryEmail}
             onLockAdmin={handleLockAdmin}
+            onBack={handleBack}
           />
         )}
       </main>
@@ -969,8 +1205,7 @@ export function App() {
         onSuccess={() => {
           setIsAdminAuthenticated(true);
           setShowAdminModal(false);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          setCurrentScreen('admin');
+          handleNavigate('admin');
         }}
         adminPassword={adminPassword}
         onResetPassword={handleUpdateAdminPassword}
@@ -983,6 +1218,14 @@ export function App() {
           onNavigate={handleNavigate}
           unreadCount={unreadAnnouncementsCount}
         />
+      )}
+
+      {/* Back-to-Exit Toast Notification on Mobile / Phone */}
+      {showExitToast && (
+        <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 bg-slate-900/95 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-2xl backdrop-blur-md pointer-events-none transition-all border border-slate-700/60 flex items-center gap-2">
+          <span className="material-symbols-outlined text-sm text-blue-400">arrow_back</span>
+          <span>Pressione voltar novamente para sair do aplicativo</span>
+        </div>
       )}
     </div>
   );

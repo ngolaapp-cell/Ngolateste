@@ -625,6 +625,7 @@ export async function fetchQuestions(): Promise<Question[]> {
         options: typeof item.options === 'string' ? JSON.parse(item.options) : (item.options || []),
         correctIndex: item.correct_index ?? item.correct_answer ?? item.correctIndex ?? 0,
         explanation: item.explanation || item.explicacao || '',
+        imageUrl: item.image_url || item.imageUrl || undefined,
       }));
 
     const qMap = new Map<string, Question>();
@@ -658,7 +659,7 @@ export async function saveQuestion(question: Question): Promise<{ success: boole
   }
 
   try {
-    const payload = {
+    const payload: any = {
       id: String(question.id),
       module_id: question.moduleId || null,
       category: question.category,
@@ -669,6 +670,9 @@ export async function saveQuestion(question: Question): Promise<{ success: boole
       explanation: question.explanation || null,
       created_at: new Date().toISOString(),
     };
+    if (question.imageUrl) {
+      payload.image_url = question.imageUrl;
+    }
 
     let resPt = await client.from('perguntas').upsert(payload, { onConflict: 'id' });
     if (resPt.error) {
@@ -739,17 +743,23 @@ export async function saveBulkQuestions(questions: Question[]): Promise<{ succes
   }
 
   try {
-    const payload = questions.map((q) => ({
-      id: String(q.id),
-      module_id: q.moduleId || null,
-      category: q.category,
-      banca: q.banca || 'MINMED / MED',
-      statement: q.statement,
-      options: q.options,
-      correct_index: q.correctIndex,
-      explanation: q.explanation || null,
-      created_at: new Date().toISOString(),
-    }));
+    const payload = questions.map((q) => {
+      const row: any = {
+        id: String(q.id),
+        module_id: q.moduleId || null,
+        category: q.category,
+        banca: q.banca || 'MINMED / MED',
+        statement: q.statement,
+        options: q.options,
+        correct_index: q.correctIndex,
+        explanation: q.explanation || null,
+        created_at: new Date().toISOString(),
+      };
+      if (q.imageUrl) {
+        row.image_url = q.imageUrl;
+      }
+      return row;
+    });
 
     let resPt = await client.from('perguntas').upsert(payload, { onConflict: 'id' });
     if (resPt.error) {
