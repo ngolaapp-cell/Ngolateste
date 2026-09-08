@@ -33,8 +33,10 @@ export const ActivationView: React.FC<ActivationViewProps> = ({
   useEffect(() => {
     if (selectedSpecialization) {
       setActiveSpec(selectedSpecialization);
+    } else if (!activeSpec && allSpecs.length > 0) {
+      setActiveSpec(allSpecs[0]);
     }
-  }, [selectedSpecialization]);
+  }, [selectedSpecialization, allSpecs, activeSpec]);
 
   const [activationCode, setActivationCode] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);

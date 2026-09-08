@@ -110,7 +110,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
       });
 
       onLoginSuccess(userProfile);
-      onNavigate('home');
     } catch (err: any) {
       console.error('Erro ao realizar login:', err);
       setErrorMessage(err?.message || 'Erro ao comunicar com a base de dados. Tente novamente.');
@@ -140,7 +139,6 @@ export const LoginView: React.FC<LoginViewProps> = ({
       });
 
       onLoginSuccess(userProfile);
-      onNavigate('home');
     } catch (err: any) {
       console.error('Erro no login Google:', err);
       setErrorMessage('Erro ao autenticar com Google. Tente novamente.');

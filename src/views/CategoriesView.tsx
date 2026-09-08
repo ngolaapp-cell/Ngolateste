@@ -2,7 +2,15 @@ import React, { useState } from 'react';
 import { Screen, Specialization, Category, UserProfile } from '../types';
 import { SPECIALIZATIONS, HOME_CATEGORIES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
-import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from '../utils/accessControl';
+import {
+  checkIsCategoryFree,
+  checkIsSpecializationFree,
+  checkIsSpecializationUnlocked,
+  evaluateCategoryAccess,
+  isCategoryNew,
+  isCategoryComingSoon,
+  isFreeStatusTag,
+} from '../utils/accessControl';
 
 interface CategoriesViewProps {
   categories?: Category[];
@@ -38,14 +46,6 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
   const displayCategories = categories;
   const allSpecs = specializations;
 
-  const isSpecFree = (spec: Specialization) => {
-    return checkIsSpecializationFree(spec, displayCategories, selectedCategory);
-  };
-
-  const isSpecUnlocked = (spec: Specialization) => {
-    return checkIsSpecializationUnlocked(spec, userProfile, displayCategories, selectedCategory);
-  };
-
   // Filter specializations based on active category
   const filteredSpecs = allSpecs.filter((spec) => {
     if (activeCategoryFilter === 'all') return true;
@@ -71,16 +71,17 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
     return false;
   });
 
-  // If filter produces no results (e.g., custom newly added category), fallback to allSpecs or mapped defaults
   const specsToRender = filteredSpecs.length > 0 ? filteredSpecs : allSpecs;
 
+  const activeCategoryObj = activeCategoryFilter === 'all' ? null : displayCategories.find((c) => c.id === activeCategoryFilter);
   const currentCategoryName =
     activeCategoryFilter === 'all'
       ? null
-      : displayCategories.find((c) => c.id === activeCategoryFilter)?.name || selectedCategory?.name;
+      : activeCategoryObj?.name || selectedCategory?.name;
 
-  const activeCategoryObj = activeCategoryFilter === 'all' ? null : displayCategories.find((c) => c.id === activeCategoryFilter);
-  const isActiveCategoryFree = activeCategoryObj ? checkIsCategoryFree(activeCategoryObj, displayCategories) : false;
+  const currentCatAccess = activeCategoryObj
+    ? evaluateCategoryAccess(activeCategoryObj, userProfile, null, displayCategories)
+    : null;
 
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-5xl mx-auto">
@@ -99,9 +100,19 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
               <span className="text-slate-300">•</span>
               <span className="text-blue-600 bg-blue-50 px-2.5 py-0.5 rounded-full text-xs font-bold border border-blue-200/60 flex items-center gap-1">
                 <span>{currentCategoryName}</span>
-                {isActiveCategoryFree && (
+                {currentCatAccess?.isUnlimitedFree && (
                   <span className="bg-emerald-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
-                    Grátis
+                    100% Grátis
+                  </span>
+                )}
+                {isCategoryNew(activeCategoryObj) && (
+                  <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
+                    Novo
+                  </span>
+                )}
+                {currentCatAccess?.isComingSoon && (
+                  <span className="bg-slate-600 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
+                    Em Breve
                   </span>
                 )}
               </span>
@@ -113,11 +124,15 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
           {currentCategoryName ? `Especializações: ${currentCategoryName}` : 'Especializações do Concurso'}
         </h2>
         <p className="text-slate-600 text-base md:text-lg leading-relaxed">
-          {isActiveCategoryFree
-            ? `🎉 Acesso 100% Gratuito! Todos os testes e simulados de ${currentCategoryName} estão liberados para todos os candidatos, sem necessidade de pagamento.`
+          {currentCatAccess?.isComingSoon
+            ? `⏳ Concurso em preparação pela equipa pedagógica. Aguardando a publicação oficial dos exames.`
+            : currentCatAccess?.isUnlimitedFree
+            ? `🎉 Acesso 100% Gratuito! Todos os testes e simulados de ${currentCategoryName} estão liberados para todos os candidatos, sem pagar inscrição ou código.`
+            : isCategoryNew(activeCategoryObj)
+            ? `✨ Nova categoria em destaque! Pode realizar até 5 simulações grátis. Após estas, é solicitada a ativação da inscrição.`
             : currentCategoryName
-            ? `Clique na especialização desejada do concurso de ${currentCategoryName} para aceder ou ativar com seu código.`
-            : 'Cada especialidade possui um código de ativação individual (1.000 Kz por 2 semanas), exceto categorias com acesso grátis liberado.'}
+            ? `Categoria liberada com 5 simulações gratuitas. Após o 5º simulado, ative a sua inscrição para continuar a testar.`
+            : 'Explore as especialidades dos concursos públicos. Categorias grátis têm acesso ilimitado; categorias liberadas e novas incluem 5 simulações gratuitas de teste.'}
         </p>
       </header>
 
@@ -139,7 +154,9 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
         </button>
 
         {displayCategories.map((cat) => {
-          const isCatFree = checkIsCategoryFree(cat, displayCategories);
+          const isNovo = (cat.statusTag || '').toUpperCase() === 'NOVO';
+          const isGratis = isFreeStatusTag(cat.statusTag);
+          const isEmBreve = isCategoryComingSoon(cat);
 
           return (
             <button
@@ -156,9 +173,19 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             >
               <span className="material-symbols-outlined text-base">{cat.icon || 'school'}</span>
               <span>{cat.name}</span>
-              {isCatFree && (
+              {isGratis && (
                 <span className="bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
                   Grátis
+                </span>
+              )}
+              {isNovo && (
+                <span className="bg-amber-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                  Novo
+                </span>
+              )}
+              {isEmBreve && (
+                <span className="bg-slate-500 text-white text-[9px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-wider">
+                  Em Breve
                 </span>
               )}
             </button>
@@ -170,20 +197,39 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
         {specsToRender.map((spec) => {
           const isSelected = selectedSpecialization?.id === spec.id;
-          const isFree = isSpecFree(spec);
-          const unlocked = isSpecUnlocked(spec);
+          const access = evaluateCategoryAccess(
+            activeCategoryObj || selectedCategory,
+            userProfile,
+            spec,
+            displayCategories
+          );
+
+          const handleCardClick = () => {
+            if (access.isComingSoon) {
+              alert('Em breve aguardando exames. Esta categoria está em preparação pela equipa pedagógica.');
+              return;
+            }
+            if (!access.canAccess) {
+              alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, ative a sua inscrição.');
+              onNavigate('activation');
+              return;
+            }
+            onSelectSpecialization(spec);
+          };
 
           return (
             <div
               key={spec.id}
-              onClick={() => onSelectSpecialization(spec)}
+              onClick={handleCardClick}
               className={`group relative flex flex-col text-left rounded-3xl overflow-hidden cursor-pointer transition-all duration-300 shadow-sm border ${
                 isSelected
                   ? 'bg-blue-50/90 border-blue-500 shadow-lg ring-2 ring-blue-500/30'
-                  : isFree
+                  : access.isUnlimitedFree
                   ? 'bg-white border-emerald-300 hover:border-emerald-500 hover:shadow-xl hover:-translate-y-1'
-                  : unlocked
-                  ? 'bg-white border-emerald-200 hover:border-emerald-400 hover:shadow-xl hover:-translate-y-1'
+                  : access.isActivated
+                  ? 'bg-white border-blue-200 hover:border-blue-400 hover:shadow-xl hover:-translate-y-1'
+                  : access.isComingSoon
+                  ? 'bg-slate-50 border-slate-200 opacity-90'
                   : 'bg-white border-slate-200/80 hover:border-blue-400 hover:shadow-xl hover:-translate-y-1'
               }`}
             >
@@ -200,30 +246,35 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 {spec.categoryName && (
                   <span className="absolute top-3 left-4 bg-black/50 backdrop-blur-md text-white text-[10px] font-extrabold px-3 py-1 rounded-full border border-white/20 flex items-center gap-1">
                     <span>{spec.categoryName}</span>
-                    {isFree && (
-                      <span className="bg-emerald-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full uppercase">
-                        Grátis
-                      </span>
-                    )}
                   </span>
                 )}
 
-                {/* Activation Status Badge */}
+                {/* Status Badge */}
                 <div className="absolute top-3 right-4">
-                  {isFree ? (
+                  {access.isComingSoon ? (
+                    <span className="bg-slate-700/95 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-slate-500/50 shadow-md flex items-center gap-1">
+                      <span className="material-symbols-outlined text-xs">schedule</span>
+                      <span>Em Breve</span>
+                    </span>
+                  ) : access.isUnlimitedFree ? (
                     <span className="bg-emerald-600/95 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-emerald-300/50 shadow-md flex items-center gap-1">
                       <span className="material-symbols-outlined text-xs">savings</span>
                       <span>100% Grátis</span>
                     </span>
-                  ) : unlocked ? (
+                  ) : access.isActivated ? (
                     <span className="bg-emerald-500/90 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-emerald-300/40 shadow-sm flex items-center gap-1">
-                      <span className="material-symbols-outlined text-xs">lock_open</span>
-                      <span>Liberado</span>
+                      <span className="material-symbols-outlined text-xs">check_circle</span>
+                      <span>Inscrição Ativada</span>
+                    </span>
+                  ) : access.isTrial && access.remainingTrials > 0 ? (
+                    <span className="bg-blue-600/90 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-blue-300/40 shadow-sm flex items-center gap-1">
+                      <span className="material-symbols-outlined text-xs">lock_clock</span>
+                      <span>{access.remainingTrials} de {access.maxTrials} Grátis</span>
                     </span>
                   ) : (
                     <span className="bg-amber-500/90 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-amber-300/40 shadow-sm flex items-center gap-1">
                       <span className="material-symbols-outlined text-xs">lock</span>
-                      <span>Requer Código</span>
+                      <span>Requer Inscrição</span>
                     </span>
                   )}
                 </div>
@@ -234,10 +285,12 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                 <div className="mb-3 flex items-center justify-between">
                   <div
                     className={`w-13 h-13 flex items-center justify-center rounded-2xl shadow-lg border ${
-                      isFree
+                      access.isUnlimitedFree
                         ? 'bg-emerald-600 text-white border-emerald-500'
-                        : unlocked
-                        ? 'bg-emerald-600 text-white border-emerald-500'
+                        : access.isActivated
+                        ? 'bg-blue-600 text-white border-blue-500'
+                        : access.isComingSoon
+                        ? 'bg-slate-600 text-white border-slate-500'
                         : isSelected
                         ? 'bg-blue-600 text-white border-blue-500'
                         : 'bg-white text-blue-700 border-slate-100 group-hover:bg-blue-600 group-hover:text-white transition-colors'
@@ -248,17 +301,31 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
 
                   <div
                     className={`flex items-center gap-1.5 font-bold text-xs px-3.5 py-1.5 rounded-xl transition-all shadow-sm ${
-                      isFree
+                      access.isComingSoon
+                        ? 'bg-slate-200 text-slate-700'
+                        : access.isUnlimitedFree
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        : unlocked
-                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                        : 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : access.isActivated
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : access.canAccess
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white'
+                        : 'bg-amber-500 hover:bg-amber-600 text-white'
                     }`}
                   >
                     <span className="material-symbols-outlined text-sm">
-                      {unlocked ? 'arrow_forward' : 'vpn_key'}
+                      {access.isComingSoon ? 'schedule' : access.canAccess ? 'arrow_forward' : 'vpn_key'}
                     </span>
-                    <span>{isFree ? 'Aceder Módulos (Grátis)' : unlocked ? 'Aceder Módulos' : 'Ativar Especialidade'}</span>
+                    <span>
+                      {access.isComingSoon
+                        ? 'Aguardando Exames'
+                        : access.isUnlimitedFree
+                        ? 'Aceder Módulos (Grátis)'
+                        : access.isActivated
+                        ? 'Aceder Módulos'
+                        : access.canAccess
+                        ? 'Fazer Simulação Grátis'
+                        : 'Ativar Inscrição'}
+                    </span>
                   </div>
                 </div>
 
@@ -273,19 +340,43 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   <span className="flex items-center gap-1">
                     <span
                       className={`material-symbols-outlined text-sm ${
-                        isFree ? 'text-emerald-600' : unlocked ? 'text-emerald-600' : 'text-amber-500'
+                        access.isUnlimitedFree
+                          ? 'text-emerald-600'
+                          : access.isActivated
+                          ? 'text-blue-600'
+                          : access.canAccess
+                          ? 'text-blue-600'
+                          : 'text-amber-500'
                       }`}
                     >
-                      {isFree ? 'savings' : unlocked ? 'verified' : 'info'}
+                      {access.isUnlimitedFree ? 'savings' : access.isActivated ? 'verified' : access.canAccess ? 'lock_clock' : 'info'}
                     </span>
-                    <span>{isFree ? 'Acesso 100% Gratuito' : unlocked ? 'Testes e Módulos Liberados' : '1.000 Kz por 2 semanas'}</span>
+                    <span>
+                      {access.isComingSoon
+                        ? 'Aguardando publicação oficial'
+                        : access.isUnlimitedFree
+                        ? '100% Gratuito sem código'
+                        : access.isActivated
+                        ? 'Inscrição Ativa'
+                        : access.canAccess
+                        ? `${access.remainingTrials} simulações restantes de teste`
+                        : 'Ative para continuar a testar'}
+                    </span>
                   </span>
                   <span
                     className={`font-extrabold group-hover:underline flex items-center gap-0.5 ${
-                      isFree ? 'text-emerald-600' : unlocked ? 'text-emerald-600' : 'text-blue-600'
+                      access.isUnlimitedFree
+                        ? 'text-emerald-600'
+                        : access.canAccess
+                        ? 'text-blue-600'
+                        : 'text-amber-600'
                     }`}
                   >
-                    {unlocked ? 'Abrir Exames →' : 'Inserir Código →'}
+                    {access.isComingSoon
+                      ? 'Em breve'
+                      : access.canAccess
+                      ? 'Abrir Exames →'
+                      : 'Ativar Agora →'}
                   </span>
                 </div>
               </div>

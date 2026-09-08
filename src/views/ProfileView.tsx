@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Screen, UserProfile, AdminAnnouncement } from '../types';
 import { fetchAdminAnnouncements, isAnnouncementForUser } from '../services/supabaseService';
+import { isUserSubscriptionExpired } from '../utils/dateUtils';
 
 interface ProfileViewProps {
   userProfile: UserProfile;
@@ -35,6 +36,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
     }
   });
   const [currentAnnIndex, setCurrentAnnIndex] = useState(0);
+
+  const isExpired = isUserSubscriptionExpired(userProfile);
 
   useEffect(() => {
     if (!propAnnouncements) {
@@ -226,17 +229,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             className={`px-4 py-2.5 rounded-full text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm ${
               userProfile.isBlocked
                 ? 'bg-red-100 text-red-900 border border-red-300'
+                : isExpired
+                ? 'bg-slate-200 text-slate-800 border border-slate-300'
                 : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0)
                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                 : 'bg-amber-100 text-amber-900 border border-amber-300'
             }`}
           >
             <span className="material-symbols-outlined text-sm">
-              {userProfile.isBlocked ? 'block' : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0) ? 'verified' : 'vpn_key'}
+              {userProfile.isBlocked ? 'block' : isExpired ? 'event_busy' : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0) ? 'verified' : 'vpn_key'}
             </span>
             <span>
               {userProfile.isBlocked
                 ? 'Conta Bloqueada'
+                : isExpired
+                ? 'Código Expirado'
                 : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0)
                 ? `${userProfile.activatedSpecializations.length} Especialidade(s) Ativa(s)`
                 : 'Nenhuma Especialidade Ativa'}
@@ -510,6 +517,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </button>
           </div>
         ) : null}
+
+        {/* Zona Assinalada: Indicador de Término de Uso da Inscrição / Código Expirado */}
+        {isExpired && !userProfile.isBlocked && (
+          <div
+            id="profile-subscription-expired-alert"
+            className="bg-slate-100/95 rounded-2xl p-4 sm:p-5 border border-slate-300 text-slate-800 space-y-2.5 shadow-2xs transition-all"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-slate-200 text-slate-700 flex items-center justify-center flex-shrink-0 border border-slate-300 shadow-2xs">
+                  <span className="material-symbols-outlined text-2xl">event_busy</span>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h5 className="font-extrabold text-sm text-slate-900">
+                      Término de Uso da Inscrição
+                    </h5>
+                    <span className="px-2 py-0.5 bg-slate-200 text-slate-700 border border-slate-300 rounded-md text-[10px] font-black uppercase tracking-wider">
+                      Código Expirado
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 leading-relaxed">
+                    {userProfile.expiresAt
+                      ? `O prazo de utilização do seu código de acesso encerrou em ${userProfile.expiresAt}. O acesso aos simulados expirou.`
+                      : 'O prazo de validade da sua inscrição encerrou. Renove o seu acesso para continuar a realizar simulados.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                id="profile-renew-subscription-btn"
+                onClick={() => onNavigate('activation')}
+                className="w-full sm:w-auto px-4 py-2.5 bg-slate-700 hover:bg-slate-800 active:scale-95 text-white font-bold rounded-xl text-xs transition-all shadow-xs flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+              >
+                <span className="material-symbols-outlined text-sm">history</span>
+                <span>Renovar Inscrição</span>
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* User Stats Grid */}

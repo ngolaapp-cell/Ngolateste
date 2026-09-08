@@ -2,7 +2,12 @@ import React, { useState, useMemo } from 'react';
 import { Screen, TestModule, Specialization, Category, UserProfile } from '../types';
 import { TEST_MODULES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
-import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked } from '../utils/accessControl';
+import {
+  evaluateCategoryAccess,
+  checkIsCategoryFree,
+  checkIsSpecializationFree,
+  checkIsSpecializationUnlocked,
+} from '../utils/accessControl';
 
 interface TestModulesViewProps {
   modules?: TestModule[];
@@ -28,18 +33,24 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const allModules = modules;
 
-  // Check if current category or specialization is free
-  const isFree = selectedSpecialization
-    ? checkIsSpecializationFree(selectedSpecialization, categories, selectedCategory)
-    : checkIsCategoryFree(selectedCategory, categories);
+  // Evaluate access with the 4-tier model (Grátis, Liberado [5 free], Novo [5 free], Em breve)
+  const access = evaluateCategoryAccess(
+    selectedCategory,
+    userProfile,
+    selectedSpecialization,
+    categories
+  );
 
-  // Check if unlocked (either free OR activated)
-  const unlocked = selectedSpecialization
-    ? checkIsSpecializationUnlocked(selectedSpecialization, userProfile, categories, selectedCategory)
-    : isFree || (userProfile?.isActivated ?? false) || (userProfile?.activatedSpecializations?.length ?? 0) > 0;
+  const isFree = access.isUnlimitedFree;
+  const unlocked = access.canAccess;
 
   const handleModuleClick = (test: TestModule) => {
-    if (!unlocked) {
+    if (access.isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria aguarda a publicação oficial dos simulados.');
+      return;
+    }
+    if (!access.canAccess) {
+      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
       onNavigate('activation');
       return;
     }
@@ -151,28 +162,61 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             <span className="bg-blue-100 text-blue-800 text-xs font-extrabold px-3 py-1 rounded-full border border-blue-200">
               {selectedSpecialization.title}
             </span>
-            {isFree ? (
+            {access.isComingSoon ? (
+              <span className="bg-slate-100 text-slate-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-slate-300 flex items-center gap-1">
+                <span className="material-symbols-outlined text-xs">schedule</span>
+                <span>Em Breve</span>
+              </span>
+            ) : access.isUnlimitedFree ? (
               <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
                 <span className="material-symbols-outlined text-xs">savings</span>
-                <span>Acesso Grátis</span>
+                <span>100% Grátis</span>
               </span>
-            ) : unlocked ? (
+            ) : access.isActivated ? (
               <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
                 <span className="material-symbols-outlined text-xs">check_circle</span>
-                <span>Ativo</span>
+                <span>Inscrição Ativa</span>
+              </span>
+            ) : access.isTrial && access.remainingTrials > 0 ? (
+              <span className="bg-blue-100 text-blue-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-blue-300 flex items-center gap-1">
+                <span className="material-symbols-outlined text-xs">lock_clock</span>
+                <span>{access.remainingTrials} de {access.maxTrials} Grátis</span>
               </span>
             ) : (
               <span className="bg-amber-100 text-amber-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-amber-300 flex items-center gap-1">
                 <span className="material-symbols-outlined text-xs">lock</span>
-                <span>Bloqueado</span>
+                <span>Requer Inscrição</span>
               </span>
             )}
           </div>
         )}
       </div>
 
-      {/* Free Category Banner */}
-      {isFree && (
+      {/* 1. Coming Soon Banner */}
+      {access.isComingSoon && (
+        <div className="mb-8 bg-gradient-to-r from-slate-700 via-slate-800 to-slate-900 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-slate-600">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-3xl text-slate-200">schedule</span>
+            </div>
+            <div>
+              <h3 className="text-xl font-black mb-1">
+                Em Breve: Aguardando Exames Oficiais
+              </h3>
+              <p className="text-slate-300 text-xs md:text-sm leading-relaxed max-w-lg">
+                Esta categoria e especialidade estão em preparação pela equipa pedagógica. Em breve serão publicados os testes e simulados oficiais.
+              </p>
+            </div>
+          </div>
+          <div className="bg-white/10 backdrop-blur-md px-4 py-2.5 rounded-2xl text-xs font-extrabold flex items-center gap-1.5 border border-white/20 shrink-0">
+            <span className="material-symbols-outlined text-sm text-slate-300">hourglass_top</span>
+            <span>Em Preparação</span>
+          </div>
+        </div>
+      )}
+
+      {/* 2. Free Category Banner */}
+      {access.isUnlimitedFree && (
         <div className="mb-8 bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-emerald-400/40">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
@@ -195,8 +239,35 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
         </div>
       )}
 
-      {/* Lock Notice Banner if Specialization is not activated and not free */}
-      {!unlocked && (
+      {/* 3. Trial Mode Banner (Up to 5 free simulations remaining) */}
+      {access.isTrial && access.remainingTrials > 0 && !access.isActivated && (
+        <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-blue-400/40">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-3xl text-white">lock_clock</span>
+            </div>
+            <div>
+              <h3 className="text-xl font-black mb-1">
+                Modo de Teste Gratuito: {access.remainingTrials} de {access.maxTrials} Restantes
+              </h3>
+              <p className="text-blue-100 text-xs md:text-sm leading-relaxed max-w-lg">
+                Pode realizar até <strong>5 simulações grátis</strong> nesta categoria. Já realizou {access.usedTrials} de {access.maxTrials}. Após a 5ª simulação, será exibida a página de inscrição para continuar.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigate('activation')}
+            className="w-full md:w-auto bg-white hover:bg-slate-50 text-blue-900 font-extrabold px-5 py-3 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-xs sm:text-sm cursor-pointer shrink-0"
+          >
+            <span className="material-symbols-outlined text-blue-600">vpn_key</span>
+            <span>Ativar Inscrição Completa</span>
+          </button>
+        </div>
+      )}
+
+      {/* 4. Trial Exhausted Banner (Must activate subscription) */}
+      {!access.canAccess && !access.isComingSoon && (
         <div className="mb-8 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-amber-400">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
@@ -204,11 +275,10 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             </div>
             <div>
               <h3 className="text-xl font-black mb-1">
-                Especialidade Não Ativada
+                Limite de 5 Simulações Grátis Concluído
               </h3>
               <p className="text-amber-100 text-xs md:text-sm leading-relaxed max-w-lg">
-                Para realizar os testes e simulados de{' '}
-                <strong>{selectedSpecialization?.title || 'esta especialidade'}</strong>, insira o código de ativação correspondente (1.000 Kz por 2 semanas).
+                Concluiu as 5 simulações gratuitas de teste nesta categoria. Para continuar a realizar exames e ter acesso total, ative a sua inscrição (1.000 Kz por 2 semanas).
               </p>
             </div>
           </div>
@@ -218,7 +288,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             className="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-900 font-extrabold px-6 py-3.5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm cursor-pointer shrink-0"
           >
             <span className="material-symbols-outlined text-amber-600">vpn_key</span>
-            <span>Inserir Código de Ativação</span>
+            <span>Ativar Inscrição Agora</span>
           </button>
         </div>
       )}

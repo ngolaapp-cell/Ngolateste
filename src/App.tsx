@@ -42,7 +42,14 @@ import { ActivationView } from './views/ActivationView';
 import { LoginView } from './views/LoginView';
 import { ProfileView } from './views/ProfileView';
 import { AdminView } from './views/AdminView';
-import { checkIsCategoryFree, checkIsSpecializationFree, checkIsSpecializationUnlocked, checkHasFullPlatformAccess } from './utils/accessControl';
+import {
+  checkIsCategoryFree,
+  checkIsSpecializationFree,
+  checkIsSpecializationUnlocked,
+  checkHasFullPlatformAccess,
+  evaluateCategoryAccess,
+  recordCategorySimulation,
+} from './utils/accessControl';
 import { updateAppBadge, sendNativeNotification } from './utils/badgeManager';
 import { AppNavState, pushNavHistory, replaceNavHistory, parseNavFromHash } from './utils/navigationHistory';
 
@@ -65,32 +72,20 @@ export function App() {
 
   const storedUser = getStoredUser();
 
-  // Navigation state restoration from history or hash
+  // Navigation state on initial load / refresh: always go directly to initial screen ('home' if logged in, 'login' if not)
   const getInitialNav = (): { screen: Screen; categoryId?: string | null; specializationId?: string | null } => {
     const isAuthed = Boolean(storedUser && (storedUser.phone?.trim() || storedUser.email?.trim()));
+    const targetScreen: Screen = isAuthed ? 'home' : 'login';
     if (typeof window !== 'undefined') {
-      const state = window.history.state as AppNavState | null;
-      if (state && state.screen) {
-        if (!isAuthed && state.screen !== 'login' && state.screen !== 'admin') {
-          return { screen: 'login' };
-        }
-        return {
-          screen: state.screen,
-          categoryId: state.categoryId,
-          specializationId: state.specializationId,
-        };
-      }
-      if (window.location.hash) {
-        const parsed = parseNavFromHash(window.location.hash);
-        if (parsed) {
-          if (!isAuthed && parsed.screen !== 'login' && parsed.screen !== 'admin') {
-            return { screen: 'login' };
-          }
-          return parsed;
-        }
-      }
+      try {
+        window.history.replaceState(
+          { screen: targetScreen, stepIndex: 0, timestamp: Date.now() },
+          '',
+          `#/${targetScreen}`
+        );
+      } catch (_) {}
     }
-    return { screen: storedUser ? 'home' : 'login' };
+    return { screen: targetScreen };
   };
 
   const initialNav = React.useMemo(() => getInitialNav(), []);
@@ -117,11 +112,23 @@ export function App() {
     );
   });
 
-  const isUserAuthenticated = Boolean(
-    userProfile &&
-      (userProfile.phone?.trim() || userProfile.email?.trim()) &&
-      localStorage.getItem('ngola_current_user')
-  );
+  const checkIsUserAuthenticated = useCallback(() => {
+    if (userProfile && (userProfile.phone?.trim() || userProfile.email?.trim())) {
+      return true;
+    }
+    try {
+      const saved = localStorage.getItem('ngola_current_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && (parsed.phone || parsed.email)) {
+          return true;
+        }
+      }
+    } catch (_) {}
+    return false;
+  }, [userProfile]);
+
+  const isUserAuthenticated = checkIsUserAuthenticated();
 
   const getCachedData = <T,>(key: string, fallback: T): T => {
     try {
@@ -212,7 +219,23 @@ export function App() {
   const [adminRecoveryEmail, setAdminRecoveryEmail] = useState<string>(() => {
     return localStorage.getItem('ngola_admin_recovery_email') || 'ngolaapp@gmail.com';
   });
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(false);
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    try {
+      return sessionStorage.getItem('ngola_admin_authenticated') === 'true';
+    } catch (_) {
+      return false;
+    }
+  });
+
+  const checkIsAdminAuthenticated = useCallback(() => {
+    if (isAdminAuthenticated) return true;
+    try {
+      return sessionStorage.getItem('ngola_admin_authenticated') === 'true';
+    } catch (_) {
+      return false;
+    }
+  }, [isAdminAuthenticated]);
+
   const [showAdminModal, setShowAdminModal] = useState<boolean>(false);
 
   // Announcements & Notification System state
@@ -400,13 +423,13 @@ export function App() {
       if (state && state.screen) {
         navStepCountRef.current = state.stepIndex ?? Math.max(0, navStepCountRef.current - 1);
 
-        if (!isUserAuthenticated && state.screen !== 'login' && state.screen !== 'admin') {
+        if (!checkIsUserAuthenticated() && state.screen !== 'login' && state.screen !== 'admin') {
           setCurrentScreen('login');
           window.scrollTo({ top: 0, behavior: 'smooth' });
           return;
         }
 
-        if (state.screen === 'admin' && !isAdminAuthenticated) {
+        if (state.screen === 'admin' && !checkIsAdminAuthenticated()) {
           setShowAdminModal(true);
           return;
         }
@@ -483,14 +506,14 @@ export function App() {
       }
     ) => {
       // If not authenticated and trying to access any screen other than login or admin, force login
-      if (!isUserAuthenticated && screen !== 'login' && screen !== 'admin') {
+      if (!checkIsUserAuthenticated() && screen !== 'login' && screen !== 'admin') {
         window.scrollTo({ top: 0, behavior: 'smooth' });
         setCurrentScreen('login');
         replaceNavHistory({ screen: 'login', stepIndex: 0 });
         return;
       }
 
-      if (screen === 'admin' && !isAdminAuthenticated) {
+      if (screen === 'admin' && !checkIsAdminAuthenticated()) {
         setShowAdminModal(true);
         return;
       }
@@ -610,16 +633,17 @@ export function App() {
     );
     const targetCategory = parentCategory || selectedCategory;
 
-    const isUnlocked = checkHasFullPlatformAccess(userProfile) || checkIsSpecializationUnlocked(
-      spec,
-      userProfile,
-      categories,
-      targetCategory
-    );
+    const access = evaluateCategoryAccess(targetCategory, userProfile, spec, categories);
 
-    if (isUnlocked) {
+    if (access.isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria aguarda a publicação oficial dos simulados.');
+      return;
+    }
+
+    if (access.canAccess) {
       handleNavigate('tests', { category: targetCategory, specialization: spec });
     } else {
+      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
       handleNavigate('activation', { category: targetCategory, specialization: spec });
     }
   };
@@ -636,6 +660,9 @@ export function App() {
   };
 
   const handleLockAdmin = () => {
+    try {
+      sessionStorage.removeItem('ngola_admin_authenticated');
+    } catch (_) {}
     setIsAdminAuthenticated(false);
     handleNavigate('home');
   };
@@ -647,20 +674,26 @@ export function App() {
       return;
     }
 
-    const freeAccess = isCategoryFree(categoryOrSubject) || (selectedCategory && isCategoryFree(selectedCategory.id));
-    const activatedList = userProfile.activatedSpecializations || [];
-    const hasAccess =
-      checkHasFullPlatformAccess(userProfile) ||
-      userProfile.isActivated ||
-      userProfile.role === 'admin' ||
-      userProfile.isVip === true ||
-      userProfile.plan === 'ilimitado' ||
-      userProfile.plan === '14d_todas_especialidades' ||
-      freeAccess ||
-      activatedList.length > 0;
+    const targetCat = categoryOrSubject
+      ? categories.find(
+          (c) =>
+            c.id.toLowerCase().trim() === categoryOrSubject.toLowerCase().trim() ||
+            c.name.toLowerCase().trim() === categoryOrSubject.toLowerCase().trim() ||
+            categoryOrSubject.toLowerCase().includes(c.name.toLowerCase()) ||
+            c.name.toLowerCase().includes(categoryOrSubject.toLowerCase())
+        )
+      : selectedCategory;
 
-    if (!hasAccess) {
-      handleNavigate('activation');
+    const access = evaluateCategoryAccess(targetCat || selectedCategory, userProfile, selectedSpecialization, categories);
+
+    if (access.isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria aguarda a publicação oficial dos simulados.');
+      return;
+    }
+
+    if (!access.canAccess) {
+      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      handleNavigate('activation', { category: targetCat || selectedCategory, specialization: selectedSpecialization });
       return;
     }
 
@@ -706,56 +739,24 @@ export function App() {
       return;
     }
 
-    // Check if parent category or module category is Free
+    // Check if parent category or module category has access
     const matchingCat = categories.find(
       (c) =>
         (module.category && (c.id.toLowerCase() === module.category.toLowerCase() || c.name.toLowerCase() === module.category.toLowerCase())) ||
         (selectedCategory && selectedCategory.id === c.id) ||
         (selectedSpecialization && (selectedSpecialization.categoryId === c.id || selectedSpecialization.categoryName?.toLowerCase() === c.name.toLowerCase()))
     );
-    const isCategoryFreeAccess = matchingCat && (
-      (matchingCat.statusTag || '').toUpperCase() === 'GRÁTIS' ||
-      (matchingCat.statusTag || '').toUpperCase() === 'GRATIS' ||
-      (matchingCat.statusTag || '').toUpperCase() === 'FREE'
-    );
 
-    const activatedList = userProfile.activatedSpecializations || [];
-    const hasUnlockedSpecInModule =
-      (module.specializationIds && module.specializationIds.some(id =>
-        activatedList.some(act => act.toLowerCase().trim() === id.toLowerCase().trim())
-      )) ||
-      (module.specializationNames && module.specializationNames.some(name =>
-        activatedList.some(act => act.toLowerCase().trim() === name.toLowerCase().trim())
-      ));
+    const access = evaluateCategoryAccess(matchingCat || selectedCategory, userProfile, selectedSpecialization, categories);
 
-    const isUnlocked =
-      checkHasFullPlatformAccess(userProfile) ||
-      userProfile.isActivated ||
-      userProfile.role === 'admin' ||
-      userProfile.isVip === true ||
-      userProfile.plan === 'ilimitado' ||
-      userProfile.plan === '14d_todas_especialidades' ||
-      isCategoryFreeAccess ||
-      hasUnlockedSpecInModule ||
-      (selectedSpecialization && (
-        activatedList.includes(selectedSpecialization.id) ||
-        activatedList.includes(selectedSpecialization.title) ||
-        activatedList.some(
-          (s) =>
-            s.toLowerCase().trim() === selectedSpecialization.id.toLowerCase().trim() ||
-            s.toLowerCase().trim() === selectedSpecialization.title.toLowerCase().trim()
-        )
-      )) ||
-      activatedList.includes('all') ||
-      activatedList.includes('ALL') ||
-      activatedList.includes('TODAS') ||
-      activatedList.includes('GLOBAL') ||
-      activatedList.includes(module.id) ||
-      activatedList.includes(module.category) ||
-      activatedList.includes(module.title);
+    if (access.isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria aguarda a publicação oficial dos simulados.');
+      return;
+    }
 
-    if (!isUnlocked) {
-      handleNavigate('activation');
+    if (!access.canAccess) {
+      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      handleNavigate('activation', { category: matchingCat || selectedCategory, specialization: selectedSpecialization });
       return;
     }
 
@@ -868,12 +869,18 @@ export function App() {
     setLastExamResult(result);
     saveExamResult(result, userProfile.phone);
 
-    // Update daily questions stats
+    // Record simulation for category trials tracking (5 free simulations)
+    const catIdentifier = selectedCategory?.id || selectedCategory?.name || result.categoryName || 'geral';
+    recordCategorySimulation(catIdentifier, userProfile.phone);
+
+    // Update daily questions stats & last simulation date
+    const formattedSimDate = result.date || new Date().toLocaleDateString('pt-AO');
     setUserProfile((prev) => {
       const updated = {
         ...prev,
         dailyCompletedQuestions: Math.min(prev.dailyCompletedQuestions + result.total, prev.dailyGoalQuestions),
         totalTestsTaken: prev.totalTestsTaken + 1,
+        lastSimulationDate: formattedSimDate,
       };
       saveUserProfile(updated);
       return updated;
@@ -1149,8 +1156,14 @@ export function App() {
             onBack={handleBack}
             onLoginSuccess={(userData) => {
               setUserProfile(userData);
-              localStorage.setItem('ngola_current_user', JSON.stringify(userData));
-              handleNavigate('home', { replace: true });
+              try {
+                localStorage.setItem('ngola_current_user', JSON.stringify(userData));
+              } catch (_) {}
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+              setCurrentScreen('home');
+              setSelectedCategory(null);
+              setSelectedSpecialization(null);
+              replaceNavHistory({ screen: 'home', stepIndex: 0 });
             }}
           />
         )}
@@ -1203,9 +1216,20 @@ export function App() {
         isOpen={showAdminModal}
         onClose={() => setShowAdminModal(false)}
         onSuccess={() => {
+          try {
+            sessionStorage.setItem('ngola_admin_authenticated', 'true');
+          } catch (_) {}
           setIsAdminAuthenticated(true);
           setShowAdminModal(false);
-          handleNavigate('admin');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          setCurrentScreen('admin');
+          setSelectedCategory(null);
+          setSelectedSpecialization(null);
+          navStepCountRef.current += 1;
+          pushNavHistory({
+            screen: 'admin',
+            stepIndex: navStepCountRef.current,
+          });
         }}
         adminPassword={adminPassword}
         onResetPassword={handleUpdateAdminPassword}

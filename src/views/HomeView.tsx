@@ -1,9 +1,9 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Screen, Category, UserProfile } from '../types';
 import { HOME_CATEGORIES } from '../data/mockData';
 import { WhatsAppBanner } from '../components/WhatsAppBanner';
 import { CategoryCarousel } from '../components/CategoryCarousel';
-import { checkIsCategoryFree, isFreeStatusTag } from '../utils/accessControl';
+import { checkIsCategoryFree, isFreeStatusTag, isCategoryNew, isCategoryComingSoon } from '../utils/accessControl';
 
 interface HomeViewProps {
   categories?: Category[];
@@ -24,6 +24,17 @@ export const HomeView: React.FC<HomeViewProps> = ({
 }) => {
   const displayCategories = categories;
   const isActivated = userProfile?.isActivated;
+
+  // Prioritize "NOVO" categories in display order
+  const sortedCategories = useMemo(() => {
+    return [...displayCategories].sort((a, b) => {
+      const aNew = (a.statusTag || '').toUpperCase() === 'NOVO';
+      const bNew = (b.statusTag || '').toUpperCase() === 'NOVO';
+      if (aNew && !bNew) return -1;
+      if (!aNew && bNew) return 1;
+      return 0;
+    });
+  }, [displayCategories]);
 
   const isCategoryFree = (catIdOrName?: string) => {
     if (!catIdOrName) return false;
@@ -51,9 +62,9 @@ export const HomeView: React.FC<HomeViewProps> = ({
   return (
     <div className="pt-24 pb-32 px-4 md:px-8 max-w-7xl mx-auto">
       {/* Dynamic Featured / New Categories Carousel */}
-      {displayCategories.length > 0 ? (
+      {sortedCategories.length > 0 ? (
         <CategoryCarousel
-          categories={displayCategories}
+          categories={sortedCategories}
           isActivated={isActivated}
           onNavigate={onNavigate}
           onSelectCategory={onSelectCategory}
@@ -66,7 +77,12 @@ export const HomeView: React.FC<HomeViewProps> = ({
       {/* Categories Grid */}
       <section className="mb-10">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-slate-900">Categorias de Concursos</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold text-slate-900">Categorias de Concursos</h2>
+            <span className="text-xs text-slate-500 font-semibold bg-slate-100 px-2 py-0.5 rounded-full">
+              {sortedCategories.length} categorias
+            </span>
+          </div>
           <button
             onClick={() => onNavigate('categories')}
             className="text-blue-600 font-bold text-sm hover:underline flex items-center gap-1 cursor-pointer"
@@ -76,59 +92,104 @@ export const HomeView: React.FC<HomeViewProps> = ({
           </button>
         </div>
 
-        {displayCategories.length > 0 ? (
+        {sortedCategories.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {displayCategories.map((cat) => (
-              <div
-                key={cat.id}
-                onClick={() => {
-                  if (onSelectCategory) {
-                    onSelectCategory(cat);
-                  } else {
-                    onNavigate('categories');
-                  }
-                }}
-                className="bg-white rounded-3xl overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col border border-slate-200/60 cursor-pointer"
-              >
-                <div className="h-32 w-full relative overflow-hidden">
-                  <img
-                    src={cat.image}
-                    alt={cat.name}
-                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                  <div className="absolute bottom-3 left-4 text-white flex items-center gap-2">
-                    <span className="material-symbols-outlined text-2xl">{cat.icon}</span>
-                    {cat.statusTag && (
-                      <span
-                        className={`${
-                          isFreeStatusTag(cat.statusTag)
-                            ? 'bg-emerald-600 border border-emerald-300 text-white'
-                            : cat.statusTag === 'LIBERADO'
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-blue-600 text-white'
-                        } backdrop-blur-sm text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1`}
-                      >
-                        {isFreeStatusTag(cat.statusTag) && (
+            {sortedCategories.map((cat) => {
+              const isNovo = (cat.statusTag || '').toUpperCase() === 'NOVO';
+              const isGratis = isFreeStatusTag(cat.statusTag);
+              const isEmBreve = isCategoryComingSoon(cat);
+              const isLiberado = !isNovo && !isGratis && !isEmBreve;
+
+              return (
+                <div
+                  key={cat.id}
+                  onClick={() => {
+                    if (isEmBreve) {
+                      alert('Em breve aguardando exames. Esta categoria está em preparação pedagógica.');
+                      return;
+                    }
+                    if (onSelectCategory) {
+                      onSelectCategory(cat);
+                    } else {
+                      onNavigate('categories');
+                    }
+                  }}
+                  className={`bg-white rounded-3xl overflow-hidden group hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex flex-col border cursor-pointer relative ${
+                    isNovo
+                      ? 'border-amber-400 ring-2 ring-amber-400/40 shadow-lg shadow-amber-500/10'
+                      : isGratis
+                      ? 'border-emerald-300/80 shadow-sm'
+                      : 'border-slate-200/60'
+                  }`}
+                >
+                  {isNovo && (
+                    <div className="absolute top-3 right-3 z-20 bg-amber-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-md flex items-center gap-1 border border-amber-300">
+                      <span className="material-symbols-outlined text-xs">star</span>
+                      <span>DESTAQUE</span>
+                    </div>
+                  )}
+
+                  <div className="h-32 w-full relative overflow-hidden">
+                    <img
+                      src={cat.image}
+                      alt={cat.name}
+                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+                    <div className="absolute bottom-3 left-4 text-white flex items-center gap-2">
+                      <span className="material-symbols-outlined text-2xl">{cat.icon}</span>
+                      {isGratis && (
+                        <span className="bg-emerald-600 border border-emerald-300 text-white backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1">
                           <span className="material-symbols-outlined text-xs">savings</span>
-                        )}
-                        <span>{cat.statusTag}</span>
+                          <span>100% GRÁTIS</span>
+                        </span>
+                      )}
+                      {isNovo && (
+                        <span className="bg-amber-500 text-white backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1 border border-amber-300">
+                          <span className="material-symbols-outlined text-xs">star</span>
+                          <span>NOVO (5 GRÁTIS)</span>
+                        </span>
+                      )}
+                      {isEmBreve && (
+                        <span className="bg-slate-600 text-slate-100 backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1 border border-slate-400">
+                          <span className="material-symbols-outlined text-xs">schedule</span>
+                          <span>EM BREVE</span>
+                        </span>
+                      )}
+                      {isLiberado && (
+                        <span className="bg-blue-600 text-white backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1 border border-blue-400">
+                          <span className="material-symbols-outlined text-xs">lock_clock</span>
+                          <span>LIBERADO (5 GRÁTIS)</span>
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="p-5 flex flex-col flex-grow">
+                    <h3 className="text-lg font-bold text-slate-900 mb-1 flex items-center justify-between">
+                      <span>{cat.name}</span>
+                      {isNovo && (
+                        <span className="text-[10px] font-extrabold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-md">
+                          Destaque
+                        </span>
+                      )}
+                    </h3>
+                    <p className="text-slate-500 text-xs leading-relaxed mb-4 line-clamp-2">
+                      {cat.description}
+                    </p>
+                    <div className="mt-auto flex items-center justify-between text-xs font-bold pt-2 border-t border-slate-100">
+                      <span className={isGratis ? 'text-emerald-600' : isEmBreve ? 'text-slate-500' : 'text-blue-600'}>
+                        {isGratis ? '100% Grátis' : isEmBreve ? 'Aguardando Exames' : '5 Simulações Grátis'}
                       </span>
-                    )}
+                      <div className="flex items-center text-blue-600 group-hover:gap-1.5 transition-all">
+                        <span>{isEmBreve ? 'Ver Detalhes' : 'Ver Especializações'}</span>
+                        <span className="material-symbols-outlined text-xs">arrow_forward</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                <div className="p-5 flex flex-col flex-grow">
-                  <h3 className="text-lg font-bold text-slate-900 mb-1">{cat.name}</h3>
-                  <p className="text-slate-500 text-xs leading-relaxed mb-4 line-clamp-2">
-                    {cat.description}
-                  </p>
-                  <div className="mt-auto flex items-center text-blue-600 font-bold text-xs group-hover:gap-1.5 transition-all">
-                    <span>Ver Especializações</span>
-                    <span className="material-symbols-outlined text-xs">arrow_forward</span>
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : isLoading ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">

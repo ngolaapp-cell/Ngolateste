@@ -13,8 +13,12 @@ export function normalizeText(str?: string | null): string {
 }
 
 /**
- * Checks if a category status tag represents free/unlocked access
- * Includes: GRÁTIS, GRATIS, FREE, LIVRE, GRATUITO, DESATIVADO, SEM CÓDIGO, ABERTO, ISENTO, etc.
+ * Maximum number of free simulations allowed for "LIBERADO" and "NOVO" categories
+ */
+export const MAX_FREE_SIMULATIONS_PER_CATEGORY = 5;
+
+/**
+ * Checks if a category status tag represents 100% free access without payment/code
  */
 export function isFreeStatusTag(statusTag?: string | null): boolean {
   if (!statusTag) return false;
@@ -34,6 +38,268 @@ export function isFreeStatusTag(statusTag?: string | null): boolean {
     tag.includes('desativad') ||
     tag.includes('sem cod')
   );
+}
+
+/**
+ * Checks if a category status tag is "NOVO" (featured + 5 free simulations)
+ */
+export function isCategoryNew(categoryOrTag?: Category | string | null): boolean {
+  if (!categoryOrTag) return false;
+  const tag = typeof categoryOrTag === 'string' ? categoryOrTag : categoryOrTag.statusTag;
+  if (!tag) return false;
+  const norm = normalizeText(tag);
+  return norm === 'novo' || norm.includes('novo');
+}
+
+/**
+ * Checks if a category status tag is "EM BREVE" (awaiting exams)
+ */
+export function isCategoryComingSoon(categoryOrTag?: Category | string | null): boolean {
+  if (!categoryOrTag) return false;
+  const tag = typeof categoryOrTag === 'string' ? categoryOrTag : categoryOrTag.statusTag;
+  if (!tag) return false;
+  const norm = normalizeText(tag);
+  return norm === 'em breve' || norm.includes('em breve') || norm.includes('aguardando');
+}
+
+/**
+ * Gets simulation count completed for a category by the user
+ */
+export function getCategorySimulationsCount(
+  categoryIdOrName?: string | null,
+  userPhone?: string | null
+): number {
+  if (!categoryIdOrName || typeof window === 'undefined') return 0;
+  try {
+    const key = `ngola_cat_sims_${userPhone ? normalizeText(userPhone) : 'guest'}`;
+    const raw = localStorage.getItem(key);
+    if (!raw) return 0;
+    const map = JSON.parse(raw);
+    const normKey = normalizeText(categoryIdOrName);
+    return Number(map[normKey] || 0);
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Records (increments) a simulation completed for a category
+ */
+export function recordCategorySimulation(
+  categoryIdOrName?: string | null,
+  userPhone?: string | null
+): number {
+  if (!categoryIdOrName || typeof window === 'undefined') return 0;
+  try {
+    const key = `ngola_cat_sims_${userPhone ? normalizeText(userPhone) : 'guest'}`;
+    const raw = localStorage.getItem(key);
+    const map = raw ? JSON.parse(raw) : {};
+    const normKey = normalizeText(categoryIdOrName);
+    const current = Number(map[normKey] || 0);
+    const updated = current + 1;
+    map[normKey] = updated;
+    localStorage.setItem(key, JSON.stringify(map));
+    return updated;
+  } catch {
+    return 1;
+  }
+}
+
+/**
+ * Detailed category access result
+ */
+export interface CategoryAccessStatus {
+  canAccess: boolean;
+  isUnlimitedFree: boolean;
+  isActivated: boolean;
+  isComingSoon: boolean;
+  isTrial: boolean;
+  remainingTrials: number;
+  usedTrials: number;
+  maxTrials: number;
+  message?: string;
+}
+
+/**
+ * Evaluates category access according to the 4 strict types:
+ * 1. LIBERADO: 5 free simulations; after this, requires subscription/activation.
+ * 2. GRÁTIS: 100% free without inscription or code.
+ * 3. NOVO: Highlighted in categories + 5 free simulations; then requires activation.
+ * 4. EM BREVE: Awaiting exams.
+ */
+export function evaluateCategoryAccess(
+  category?: Category | null,
+  userProfile?: UserProfile | null,
+  specialization?: Specialization | null,
+  categoriesList: Category[] = []
+): CategoryAccessStatus {
+  const maxTrials = MAX_FREE_SIMULATIONS_PER_CATEGORY;
+
+  // 1. Blocked account
+  if (userProfile?.isBlocked) {
+    return {
+      canAccess: false,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 0,
+      usedTrials: 0,
+      maxTrials,
+      message: 'Conta com acesso bloqueado por comportamento irregular.',
+    };
+  }
+
+  // 2. Global platform access (Admin, VIP, Global Plan or Activated Account)
+  if (checkHasFullPlatformAccess(userProfile)) {
+    return {
+      canAccess: true,
+      isUnlimitedFree: true,
+      isActivated: true,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 9999,
+      usedTrials: 0,
+      maxTrials,
+    };
+  }
+
+  // 3. Find effective category
+  const normCatId = normalizeText(category?.id);
+  const normCatName = normalizeText(category?.name);
+  const effectiveCat =
+    category ||
+    categoriesList.find((c) => {
+      const cId = normalizeText(c.id);
+      const cName = normalizeText(c.name);
+      return (
+        (normCatId && (cId === normCatId || cName === normCatId)) ||
+        (normCatName && (cId === normCatName || cName === normCatName)) ||
+        (specialization?.categoryId && normalizeText(c.id) === normalizeText(specialization.categoryId)) ||
+        (specialization?.categoryName && normalizeText(c.name) === normalizeText(specialization.categoryName))
+      );
+    });
+
+  // 4. Check if specialization is explicitly activated
+  if (specialization && userProfile) {
+    const activatedList = userProfile.activatedSpecializations || [];
+    const normSpecId = normalizeText(specialization.id);
+    const normSpecTitle = normalizeText(specialization.title);
+    const isSpecActivated = activatedList.some((act) => {
+      const normAct = normalizeText(act);
+      return (
+        normAct === normSpecId ||
+        normAct === normSpecTitle ||
+        normAct === 'all' ||
+        normAct === 'todas' ||
+        normAct === 'global'
+      );
+    });
+    if (isSpecActivated) {
+      return {
+        canAccess: true,
+        isUnlimitedFree: true,
+        isActivated: true,
+        isComingSoon: false,
+        isTrial: false,
+        remainingTrials: 9999,
+        usedTrials: 0,
+        maxTrials,
+      };
+    }
+  }
+
+  // 5. Check if category is explicitly activated
+  if (effectiveCat && userProfile) {
+    const activatedList = userProfile.activatedSpecializations || [];
+    const normEffectiveCatId = normalizeText(effectiveCat.id);
+    const normEffectiveCatName = normalizeText(effectiveCat.name);
+    const isCatActivated = activatedList.some((act) => {
+      const normAct = normalizeText(act);
+      return (
+        normAct === normEffectiveCatId ||
+        normAct === normEffectiveCatName
+      );
+    });
+    if (isCatActivated) {
+      return {
+        canAccess: true,
+        isUnlimitedFree: true,
+        isActivated: true,
+        isComingSoon: false,
+        isTrial: false,
+        remainingTrials: 9999,
+        usedTrials: 0,
+        maxTrials,
+      };
+    }
+  }
+
+  // 6. Check if Category is "EM BREVE" (Aguardando exames)
+  if (isCategoryComingSoon(effectiveCat)) {
+    return {
+      canAccess: false,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: true,
+      isTrial: false,
+      remainingTrials: 0,
+      usedTrials: 0,
+      maxTrials,
+      message: 'Em breve aguardando exames. Esta categoria está em preparação pela equipa pedagógica.',
+    };
+  }
+
+  // 7. Check if Category is "GRÁTIS" (100% gratuito sem pagar inscrição ou código)
+  if (isFreeStatusTag(effectiveCat?.statusTag)) {
+    return {
+      canAccess: true,
+      isUnlimitedFree: true,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 9999,
+      usedTrials: 0,
+      maxTrials,
+    };
+  }
+
+  // 8. "LIBERADO" ou "NOVO": O utilizador pode fazer até 5 simulações grátis
+  const catIdentifier =
+    effectiveCat?.id ||
+    effectiveCat?.name ||
+    specialization?.categoryId ||
+    specialization?.categoryName ||
+    'geral';
+
+  const used = getCategorySimulationsCount(catIdentifier, userProfile?.phone);
+  const remaining = Math.max(0, maxTrials - used);
+
+  if (remaining > 0) {
+    return {
+      canAccess: true,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: true,
+      remainingTrials: remaining,
+      usedTrials: used,
+      maxTrials,
+    };
+  }
+
+  // 9. Trials exhausted (após 5 simulações grátis)
+  return {
+    canAccess: false,
+    isUnlimitedFree: false,
+    isActivated: false,
+    isComingSoon: false,
+    isTrial: true,
+    remainingTrials: 0,
+    usedTrials: used,
+    maxTrials,
+    message: 'Concluiu as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, ative a sua inscrição.',
+  };
 }
 
 /**

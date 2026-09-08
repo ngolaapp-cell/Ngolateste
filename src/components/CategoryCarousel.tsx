@@ -1,6 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Category, Screen } from '../types';
-import { checkIsCategoryFree, isFreeStatusTag } from '../utils/accessControl';
+import {
+  checkIsCategoryFree,
+  isFreeStatusTag,
+  evaluateCategoryAccess,
+  isCategoryComingSoon,
+  isCategoryNew,
+} from '../utils/accessControl';
 
 interface CategoryCarouselProps {
   categories: Category[];
@@ -66,10 +72,8 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
     const minSwipeDistance = 50;
 
     if (distance > minSwipeDistance) {
-      // Swipe left -> Next
       nextSlide();
     } else if (distance < -minSwipeDistance) {
-      // Swipe right -> Prev
       prevSlide();
     }
 
@@ -80,6 +84,11 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
   const currentCategory = categories[currentIndex];
 
   const handleCategoryClick = (cat: Category) => {
+    const isComingSoon = isCategoryComingSoon(cat);
+    if (isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria está em preparação pela equipa pedagógica.');
+      return;
+    }
     if (onSelectCategory) {
       onSelectCategory(cat);
     } else {
@@ -87,13 +96,15 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
     }
   };
 
-  const isCategoryFree = (cat: Category) => {
-    return checkIsCategoryFree(cat, categories);
-  };
-
   const handleStartSimuladoFromSlide = (e: React.MouseEvent, cat: Category) => {
     e.stopPropagation();
-    if (!isActivated && !isCategoryFree(cat)) {
+    const access = evaluateCategoryAccess(cat, undefined, null, categories);
+    if (access.isComingSoon) {
+      alert('Em breve aguardando exames. Esta categoria aguarda a publicação oficial dos simulados.');
+      return;
+    }
+    if (!isActivated && !access.canAccess) {
+      alert('Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
       onNavigate('activation');
       return;
     }
@@ -113,6 +124,11 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
       <div className="relative h-72 sm:h-80 md:h-96 w-full rounded-3xl overflow-hidden shadow-xl bg-slate-900 border border-slate-800">
         {categories.map((cat, index) => {
           const isActive = index === currentIndex;
+          const isNovo = (cat.statusTag || '').toUpperCase() === 'NOVO';
+          const isGratis = isFreeStatusTag(cat.statusTag);
+          const isComingSoon = isCategoryComingSoon(cat);
+          const isLiberado = !isNovo && !isGratis && !isComingSoon;
+
           return (
             <div
               key={cat.id || index}
@@ -138,25 +154,31 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
               <div className="absolute inset-0 p-6 sm:p-8 md:p-10 flex flex-col justify-between text-white z-20">
                 {/* Top Badges */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="bg-blue-600/90 backdrop-blur-md text-white text-[11px] font-extrabold uppercase px-3 py-1 rounded-full tracking-wider border border-blue-400/40 shadow-sm flex items-center gap-1.5">
-                    <span className="material-symbols-outlined text-xs">auto_awesome</span>
-                    <span>Destaque / Nova Categoria</span>
-                  </span>
+                  {isNovo && (
+                    <span className="bg-amber-500 text-white text-[11px] font-black uppercase px-3 py-1 rounded-full tracking-wider border border-amber-300 shadow-md flex items-center gap-1.5 animate-pulse">
+                      <span className="material-symbols-outlined text-xs">star</span>
+                      <span>Destaque • Novo Concurso</span>
+                    </span>
+                  )}
 
-                  {cat.statusTag && (
-                    <span
-                      className={`${
-                        isFreeStatusTag(cat.statusTag)
-                          ? 'bg-emerald-600/95 border-emerald-300 text-white shadow-md'
-                          : cat.statusTag === 'LIBERADO'
-                          ? 'bg-emerald-500/90 border-emerald-400/50 text-white'
-                          : 'bg-amber-500/90 border-amber-400/50 text-white'
-                      } backdrop-blur-md text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider border shadow-xs flex items-center gap-1`}
-                    >
-                      {isFreeStatusTag(cat.statusTag) && (
-                        <span className="material-symbols-outlined text-xs">savings</span>
-                      )}
-                      <span>{cat.statusTag}</span>
+                  {isGratis && (
+                    <span className="bg-emerald-600 border border-emerald-300 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-md flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-xs">savings</span>
+                      <span>100% Grátis (Sem Inscrição)</span>
+                    </span>
+                  )}
+
+                  {isComingSoon && (
+                    <span className="bg-slate-600/90 border border-slate-400 text-slate-100 text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-md flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-xs">schedule</span>
+                      <span>Em Breve Aguardando Exames</span>
+                    </span>
+                  )}
+
+                  {isLiberado && (
+                    <span className="bg-blue-600/90 border border-blue-400/50 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-md flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-xs">lock_clock</span>
+                      <span>Liberado (5 Simulações Grátis)</span>
                     </span>
                   )}
                 </div>
@@ -178,14 +200,28 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
 
                   {/* Call to Actions */}
                   <div className="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={(e) => handleStartSimuladoFromSlide(e, cat)}
-                      className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-2xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all active:scale-95 cursor-pointer"
-                    >
-                      <span>Iniciar Simulado</span>
-                      <span className="material-symbols-outlined text-base">play_circle</span>
-                    </button>
+                    {isComingSoon ? (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          alert('Em breve aguardando exames. Esta categoria está em preparação.');
+                        }}
+                        className="bg-slate-700 text-slate-200 font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-2xl text-xs sm:text-sm flex items-center gap-2 border border-slate-600 shadow-md cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-base">schedule</span>
+                        <span>Aguardando Exames</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={(e) => handleStartSimuladoFromSlide(e, cat)}
+                        className="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 text-white font-bold px-5 py-2.5 sm:px-6 sm:py-3 rounded-2xl text-xs sm:text-sm flex items-center gap-2 shadow-lg shadow-blue-600/30 transition-all active:scale-95 cursor-pointer"
+                      >
+                        <span>{isGratis ? 'Iniciar Simulado (Grátis)' : 'Iniciar Simulado'}</span>
+                        <span className="material-symbols-outlined text-base">play_circle</span>
+                      </button>
+                    )}
 
                     <button
                       type="button"

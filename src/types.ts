@@ -95,6 +95,7 @@ export interface UserProfile {
   dailyCompletedQuestions: number;
   totalTestsTaken: number;
   averageScore: number;
+  lastSimulationDate?: string; // Data da última simulação (dia, mês e ano: DD/MM/AAAA)
   isBlocked?: boolean;
   blockedReason?: string;
   blockedAt?: string;

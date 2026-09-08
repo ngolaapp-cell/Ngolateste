@@ -669,6 +669,7 @@ app.get("/api/admin/users", async (req, res) => {
               dailyCompletedQuestions: row.daily_completed_questions ?? 0,
               totalTestsTaken: row.total_tests_taken ?? 0,
               averageScore: Number(row.average_score ?? 0),
+              lastSimulationDate: row.last_simulation_date || row.lastSimulationDate || row.last_exam_date || undefined,
               isBlocked: Boolean(row.is_blocked ?? row.isBlocked ?? false),
               blockedReason: row.blocked_reason || row.blockedReason || undefined,
               blockedAt: row.blocked_at || row.blockedAt || undefined,
@@ -701,10 +702,39 @@ app.get("/api/admin/users", async (req, res) => {
               dailyCompletedQuestions: row.daily_completed_questions ?? 0,
               totalTestsTaken: row.total_tests_taken ?? 0,
               averageScore: Number(row.average_score ?? 0),
+              lastSimulationDate: row.last_simulation_date || row.lastSimulationDate || row.last_exam_date || undefined,
               isBlocked: Boolean(row.is_blocked ?? row.isBlocked ?? false),
               blockedReason: row.blocked_reason || row.blockedReason || undefined,
               blockedAt: row.blocked_at || row.blockedAt || undefined,
             });
+          }
+        }
+      }
+    } catch (_) {}
+
+    // 3. Query 'resultados_testes' to get accurate latest simulation date for each user
+    try {
+      const { data: rData, error: rErr } = await client
+        .from("resultados_testes")
+        .select("user_phone, created_at")
+        .order("created_at", { ascending: false });
+
+      if (!rErr && Array.isArray(rData)) {
+        for (const row of rData) {
+          const rPhone = (row.user_phone || "").trim();
+          if (rPhone) {
+            const cleanRPhone = rPhone.replace(/\D/g, "");
+            for (const [uPhone, userObj] of userMap.entries()) {
+              const cleanUPhone = uPhone.replace(/\D/g, "");
+              if (
+                uPhone === rPhone ||
+                (cleanRPhone.length >= 9 && cleanUPhone.length >= 9 && (cleanUPhone.endsWith(cleanRPhone) || cleanRPhone.endsWith(cleanUPhone)))
+              ) {
+                if (!userObj.lastSimulationDate && row.created_at) {
+                  userObj.lastSimulationDate = row.created_at;
+                }
+              }
+            }
           }
         }
       }

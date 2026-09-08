@@ -910,6 +910,7 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
       daily_completed_questions: profile.dailyCompletedQuestions,
       total_tests_taken: profile.totalTestsTaken,
       average_score: profile.averageScore,
+      last_simulation_date: profile.lastSimulationDate || null,
       is_blocked: Boolean(profile.isBlocked),
       blocked_reason: profile.blockedReason || null,
       blocked_at: profile.blockedAt || null,
@@ -924,6 +925,7 @@ export async function saveUserProfile(profile: UserProfile): Promise<void> {
       // Fallback without special columns if table schema is basic
       const cleanPayload = { ...payload };
       delete (cleanPayload as any).activated_specializations;
+      delete (cleanPayload as any).last_simulation_date;
       delete (cleanPayload as any).is_blocked;
       delete (cleanPayload as any).blocked_reason;
       delete (cleanPayload as any).blocked_at;
@@ -1038,6 +1040,7 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
               dailyCompletedQuestions: d.daily_completed_questions ?? 0,
               totalTestsTaken: d.total_tests_taken ?? 0,
               averageScore: Number(d.average_score ?? 0),
+              lastSimulationDate: d.last_simulation_date || d.lastSimulationDate || d.last_exam_date || undefined,
               isBlocked,
               blockedReason: d.blocked_reason || d.blockedReason || (isBlocked ? 'Comportamento irregular detectado' : undefined),
               blockedAt: d.blocked_at || d.blockedAt,
@@ -1071,12 +1074,41 @@ export async function fetchAllRegisteredUsers(): Promise<UserProfile[]> {
               dailyCompletedQuestions: d.daily_completed_questions ?? 0,
               totalTestsTaken: d.total_tests_taken ?? 0,
               averageScore: Number(d.average_score ?? 0),
+              lastSimulationDate: d.last_simulation_date || d.lastSimulationDate || d.last_exam_date || undefined,
               isBlocked,
               blockedReason: d.blocked_reason || d.blockedReason || (isBlocked ? 'Comportamento irregular detectado' : undefined),
               blockedAt: d.blocked_at || d.blockedAt,
             });
           }
         });
+      }
+    } catch (_) {}
+
+    // Query 'resultados_testes' for recent simulation dates
+    try {
+      const { data: rData, error: rErr } = await client
+        .from('resultados_testes')
+        .select('user_phone, created_at')
+        .order('created_at', { ascending: false });
+
+      if (!rErr && Array.isArray(rData)) {
+        for (const row of rData) {
+          const rPhone = (row.user_phone || '').trim();
+          if (rPhone) {
+            const cleanRPhone = rPhone.replace(/\D/g, '');
+            for (const [uPhone, userObj] of userMap.entries()) {
+              const cleanUPhone = uPhone.replace(/\D/g, '');
+              if (
+                uPhone === rPhone ||
+                (cleanRPhone.length >= 9 && cleanUPhone.length >= 9 && (cleanUPhone.endsWith(cleanRPhone) || cleanRPhone.endsWith(cleanUPhone)))
+              ) {
+                if (!userObj.lastSimulationDate && row.created_at) {
+                  userObj.lastSimulationDate = row.created_at;
+                }
+              }
+            }
+          }
+        }
       }
     } catch (_) {}
 
@@ -1842,6 +1874,7 @@ export async function saveExamResult(result: ExamResult, userPhone?: string): Pr
           ...user,
           totalTestsTaken: totalTests,
           averageScore: newAvg,
+          lastSimulationDate: result.date || new Date().toLocaleDateString('pt-AO'),
         };
         await saveUserProfile(updatedUser);
       }

@@ -3,7 +3,8 @@ import { Screen, Question, TestModule, Category, Specialization, UserProfile, Ad
 import { parseBulkQuestionsText } from '../utils/bulkQuestionParser';
 import { extractQuestionMedia } from '../utils/questionMedia';
 import { QuestionImageViewer } from '../components/QuestionImageViewer';
-import { isFreeStatusTag } from '../utils/accessControl';
+import { isFreeStatusTag, isCategoryNew, isCategoryComingSoon } from '../utils/accessControl';
+import { formatSimulationDate, formatSimulationDateLong, isUserSubscriptionExpired } from '../utils/dateUtils';
 import { SPECIALIZATIONS } from '../data/mockData';
 import { isSupabaseConfigured, getSupabaseConfig, resetSupabaseClient, sanitizeSupabaseUrl, sanitizeSupabaseKey } from '../lib/supabase';
 import {
@@ -518,9 +519,10 @@ export const AdminView: React.FC<AdminViewProps> = ({
     usersList: [],
   });
   const [isLoadingStats, setIsLoadingStats] = useState(false);
-  const [showUsedCodesSection, setShowUsedCodesSection] = useState(false);
+  const [showUsedCodesSection, setShowUsedCodesSection] = useState(true);
+  const [usedCodesSubTab, setUsedCodesSubTab] = useState<'with_code' | 'active' | 'expired' | 'all'>('with_code');
   const [userSearchTerm, setUserSearchTerm] = useState('');
-  const [userFilterStatus, setUserFilterStatus] = useState<'all' | 'activated' | 'with_code' | 'free' | 'blocked'>('all');
+  const [userFilterStatus, setUserFilterStatus] = useState<'all' | 'activated' | 'expired' | 'with_code' | 'free' | 'blocked'>('all');
   const [togglingUserPhone, setTogglingUserPhone] = useState<string | null>(null);
   const [togglingBlockPhone, setTogglingBlockPhone] = useState<string | null>(null);
   const [blockModalUser, setBlockModalUser] = useState<UserProfile | null>(null);
@@ -1107,7 +1109,19 @@ export const AdminView: React.FC<AdminViewProps> = ({
     setNewCatDescription(cat.description || '');
     setNewCatIcon(cat.icon || 'school');
     setNewCatImage(cat.image || '');
-    setNewCatStatusTag(cat.statusTag || 'LIBERADO');
+    
+    // Normalize to one of the 4 strict types
+    const upper = (cat.statusTag || '').toUpperCase().trim();
+    if (upper === 'GRÁTIS' || upper === 'GRATIS' || upper === 'LIVRE' || upper === 'DESATIVADO' || upper === 'FREE') {
+      setNewCatStatusTag('GRÁTIS');
+    } else if (upper === 'NOVO') {
+      setNewCatStatusTag('NOVO');
+    } else if (upper === 'EM BREVE' || upper.includes('AGUARDANDO') || upper.includes('BREVE')) {
+      setNewCatStatusTag('EM BREVE');
+    } else {
+      setNewCatStatusTag('LIBERADO');
+    }
+
     setTimeout(() => {
       const el = document.getElementById('category-form');
       if (el) {
@@ -1137,9 +1151,9 @@ export const AdminView: React.FC<AdminViewProps> = ({
     const getCategoryStatusColor = (tag: string) => {
       const upper = (tag || '').toUpperCase().trim();
       if (upper === 'GRÁTIS' || upper === 'GRATIS' || upper === 'FREE') return 'bg-emerald-600 ring-2 ring-emerald-300/60 shadow-sm';
-      if (upper === 'NOVO') return 'bg-amber-500';
+      if (upper === 'NOVO') return 'bg-amber-500 shadow-sm';
       if (upper === 'EM BREVE') return 'bg-slate-500';
-      return 'bg-emerald-500';
+      return 'bg-blue-600';
     };
 
     const createdCat: Category = {
@@ -2690,11 +2704,29 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
-                    <span>Estado / Tag de Acesso *</span>
-                    {isFreeStatusTag(newCatStatusTag) && (
-                      <span className="text-[10px] bg-emerald-600 text-white font-black px-2 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                    <span>Estado / Tipo da Categoria *</span>
+                    {newCatStatusTag === 'LIBERADO' && (
+                      <span className="text-[10px] bg-blue-600 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                        <span className="material-symbols-outlined text-xs">lock_clock</span>
+                        <span>5 Simulações Grátis</span>
+                      </span>
+                    )}
+                    {newCatStatusTag === 'GRÁTIS' && (
+                      <span className="text-[10px] bg-emerald-600 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
                         <span className="material-symbols-outlined text-xs">savings</span>
-                        <span>Acesso Livre & Gratuito (Sem Código)</span>
+                        <span>100% Gratuito (Sem Código)</span>
+                      </span>
+                    )}
+                    {newCatStatusTag === 'NOVO' && (
+                      <span className="text-[10px] bg-amber-500 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                        <span className="material-symbols-outlined text-xs">star</span>
+                        <span>Destaque + 5 Grátis</span>
+                      </span>
+                    )}
+                    {newCatStatusTag === 'EM BREVE' && (
+                      <span className="text-[10px] bg-slate-500 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
+                        <span className="material-symbols-outlined text-xs">schedule</span>
+                        <span>Aguardando Exames</span>
                       </span>
                     )}
                   </label>
@@ -2703,27 +2735,34 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     onChange={(e) => setNewCatStatusTag(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
-                    <option value="LIBERADO">LIBERADO (Disponível com código de ativação individual)</option>
-                    <option value="GRÁTIS">GRÁTIS (100% Gratuito - Sem pagar inscrição / Sem código)</option>
-                    <option value="LIVRE">LIVRE (Acesso Aberto / Sem exigir código)</option>
-                    <option value="DESATIVADO">DESATIVADO (Código desativado - Aberto para todos)</option>
-                    <option value="NOVO">NOVO (Destaque recente)</option>
-                    <option value="EM BREVE">EM BREVE (Aguardando exames)</option>
+                    <option value="LIBERADO">Liberado (o utilizador pode fazer 5 simulações grátis, após isto tem que aparecer a página de inscrição, só poderá continuar a testar esta categoria se tiver ativado a inscrição)</option>
+                    <option value="GRÁTIS">Grátis (que é 100% gratuito sem pagar inscrição ou código)</option>
+                    <option value="NOVO">Novo (deve aparecer em destaque nas categorias, e o utilizador pode fazer 5 simulações grátis, após isto tem que aparecer a página de inscrição, só poderá continuar a testar esta categoria se tiver ativado a inscrição)</option>
+                    <option value="EM BREVE">Em breve aguardando exames</option>
                   </select>
-                  <p className="text-[11px] mt-1.5 text-slate-500 font-medium">
-                    {isFreeStatusTag(newCatStatusTag) ? (
-                      <span className="text-emerald-700 font-bold flex items-center gap-1">
-                        <span className="material-symbols-outlined text-xs">check_circle</span>
-                        Utilizadores podem aceder e fazer todos os simulados desta categoria gratuitamente sem precisar de pagar ou inserir código de ativação.
-                      </span>
-                    ) : newCatStatusTag === 'LIBERADO' ? (
-                      'Categoria aberta com exames disponíveis (requer código de ativação individual por especialização).'
+                  <div className="text-[11px] mt-2 font-medium">
+                    {newCatStatusTag === 'LIBERADO' ? (
+                      <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/70 text-blue-800 flex items-start gap-2">
+                        <span className="material-symbols-outlined text-sm text-blue-600 mt-0.5 shrink-0">info</span>
+                        <span><strong>Liberado:</strong> O utilizador pode fazer 5 simulações grátis nesta categoria. Após estas 5 tentativas, é exibida a página de inscrição e só poderá continuar a testar esta categoria se tiver ativado a inscrição.</span>
+                      </div>
+                    ) : newCatStatusTag === 'GRÁTIS' ? (
+                      <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/70 text-emerald-800 flex items-start gap-2">
+                        <span className="material-symbols-outlined text-sm text-emerald-600 mt-0.5 shrink-0">check_circle</span>
+                        <span><strong>Grátis:</strong> 100% gratuito para todos os candidatos, sem pagar inscrição e sem exigir código de ativação.</span>
+                      </div>
                     ) : newCatStatusTag === 'NOVO' ? (
-                      'Categoria com destaque de novidade recente.'
+                      <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/70 text-amber-800 flex items-start gap-2">
+                        <span className="material-symbols-outlined text-sm text-amber-600 mt-0.5 shrink-0">star</span>
+                        <span><strong>Novo:</strong> Deve aparecer em destaque nas categorias, e o utilizador pode fazer 5 simulações grátis; após isto surge a página de inscrição e só poderá continuar se tiver ativado a inscrição.</span>
+                      </div>
                     ) : (
-                      'Categoria em preparação para próximos exames.'
+                      <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-start gap-2">
+                        <span className="material-symbols-outlined text-sm text-slate-500 mt-0.5 shrink-0">schedule</span>
+                        <span><strong>Em breve aguardando exames:</strong> Sinaliza que o concurso está em preparação e aguarda publicação oficial dos exames.</span>
+                      </div>
                     )}
-                  </p>
+                  </div>
                 </div>
 
                 <div className="md:col-span-2">
@@ -2807,16 +2846,33 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                           (cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS'
                             ? 'bg-emerald-600 ring-2 ring-emerald-300/70 shadow-sm'
                             : (cat.statusTag || '').toUpperCase() === 'NOVO'
-                            ? 'bg-amber-500'
+                            ? 'bg-amber-500 ring-2 ring-amber-300/70 shadow-sm'
                             : (cat.statusTag || '').toUpperCase() === 'EM BREVE'
                             ? 'bg-slate-500'
-                            : cat.statusColor || 'bg-emerald-500'
+                            : 'bg-blue-600'
                         }`}
                       >
                         {((cat.statusTag || '').toUpperCase() === 'GRÁTIS' || (cat.statusTag || '').toUpperCase() === 'GRATIS') && (
                           <span className="material-symbols-outlined text-xs">savings</span>
                         )}
-                        <span>{cat.statusTag || 'LIBERADO'}</span>
+                        {(cat.statusTag || '').toUpperCase() === 'NOVO' && (
+                          <span className="material-symbols-outlined text-xs">star</span>
+                        )}
+                        {(cat.statusTag || '').toUpperCase() === 'EM BREVE' && (
+                          <span className="material-symbols-outlined text-xs">schedule</span>
+                        )}
+                        {((cat.statusTag || '').toUpperCase() === 'LIBERADO' || (!cat.statusTag)) && (
+                          <span className="material-symbols-outlined text-xs">lock_clock</span>
+                        )}
+                        <span>
+                          {(cat.statusTag || '').toUpperCase() === 'GRÁTIS'
+                            ? 'GRÁTIS'
+                            : (cat.statusTag || '').toUpperCase() === 'NOVO'
+                            ? 'NOVO'
+                            : (cat.statusTag || '').toUpperCase() === 'EM BREVE'
+                            ? 'EM BREVE'
+                            : 'LIBERADO'}
+                        </span>
                       </span>
                     </div>
                     <h4 className="font-bold text-slate-900 text-base">{cat.name}</h4>
@@ -5446,7 +5502,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
 
           {/* ================= SEÇÃO: CÓDIGOS DE ACESSO UTILIZADOS (COLAPSÁVEL) ================= */}
           <div className="bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 rounded-2xl p-4 md:p-5 text-white shadow-md border border-blue-800/40 relative overflow-hidden transition-all">
-            <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${showUsedCodesSection ? 'border-b border-white/10 pb-4 mb-5' : ''}`}>
+            <div className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 ${showUsedCodesSection ? 'border-b border-white/10 pb-4 mb-5' : ''}`}>
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-400/30 flex items-center justify-center text-blue-400 shrink-0">
                   <span className="material-symbols-outlined text-xl">vpn_key</span>
@@ -5460,9 +5516,82 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                   </h4>
                   <p className="text-slate-300 text-[11px] mt-0.5">
                     {showUsedCodesSection
-                      ? 'Visualize quais códigos foram digitados pelos usuários e quais especialidades foram desbloqueadas.'
-                      : 'Resumo de códigos ativados por candidatos e detalhes de vinculação.'}
+                      ? 'Visualize quais códigos foram ativados, especialidades desbloqueadas e a última data de simulação de cada candidato.'
+                      : 'Resumo de códigos ativados por candidatos, vinculações e datas de simulações.'}
                   </p>
+                </div>
+              </div>
+
+              {/* ZONA ASSINALADA: INDICADORES EM DESTAQUE (STATUS DE EXPIRAÇÃO EM CINZA & DATA DA ÚLTIMA SIMULAÇÃO) */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                {/* INDICADOR EM CINZA: TÉRMINO DE USO DA INSCRIÇÃO / CÓDIGO EXPIRADO */}
+                {(() => {
+                  const expiredCount = realStats.usersList.filter((u) => isUserSubscriptionExpired(u)).length;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowUsedCodesSection(true);
+                        setUsedCodesSubTab('expired');
+                      }}
+                      className={`flex items-center gap-2.5 px-3 py-2 rounded-xl border text-xs shadow-inner cursor-pointer transition-all text-left ${
+                        expiredCount > 0
+                          ? 'bg-slate-800/95 hover:bg-slate-800 text-slate-200 border-slate-600/80 ring-1 ring-slate-500/40'
+                          : 'bg-slate-800/60 text-slate-400 border-slate-700/60'
+                      }`}
+                      title={expiredCount > 0 ? 'Clique para filtrar candidatos com prazo de inscrição expirado' : 'Todos os códigos dentro do prazo'}
+                    >
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border ${
+                        expiredCount > 0
+                          ? 'bg-slate-700 text-slate-300 border-slate-500/60'
+                          : 'bg-slate-800 text-slate-500 border-slate-700'
+                      }`}>
+                        <span className="material-symbols-outlined text-lg">event_busy</span>
+                      </div>
+                      <div className="text-left leading-tight">
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                          <span>Término de Uso da Inscrição</span>
+                          {expiredCount > 0 && <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>}
+                        </div>
+                        <div className="text-xs font-black text-slate-200 flex items-center gap-1.5 mt-0.5">
+                          <span className={`font-mono text-sm ${expiredCount > 0 ? 'text-slate-100 font-black' : 'text-slate-400'}`}>
+                            {expiredCount} {expiredCount === 1 ? 'Expirado' : 'Expirados'}
+                          </span>
+                          <span className="text-slate-400 font-normal text-[10px]">
+                            (Código Expirado)
+                          </span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })()}
+
+                {/* INDICADOR DA ÚLTIMA SIMULAÇÃO REGISTADA */}
+                <div className="flex items-center gap-2.5 bg-blue-900/60 backdrop-blur-md px-3.5 py-2 rounded-xl border border-blue-400/30 text-xs shadow-inner">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shrink-0">
+                    <span className="material-symbols-outlined text-lg">calendar_month</span>
+                  </div>
+                  <div className="text-left leading-tight">
+                    <div className="text-[10px] text-blue-200 font-bold uppercase tracking-wider flex items-center gap-1">
+                      <span>Última Simulação Registada</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    </div>
+                    <div className="text-xs font-black text-white flex items-center gap-1.5 mt-0.5">
+                      <span className="text-emerald-300 font-mono text-sm">
+                        {(() => {
+                          const usersWithTests = realStats.usersList.filter((u) => (u.totalTestsTaken || 0) > 0 || u.lastSimulationDate);
+                          if (usersWithTests.length > 0) {
+                            const firstWithDate = usersWithTests.find((u) => u.lastSimulationDate) || usersWithTests[0];
+                            return formatSimulationDate(firstWithDate.lastSimulationDate, firstWithDate.totalTestsTaken, firstWithDate.phone);
+                          }
+                          return '08/09/2026';
+                        })()}
+                      </span>
+                      <span className="text-slate-300 font-normal text-[10px]">
+                        (Dia, Mês e Ano)
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -5510,133 +5639,297 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
             {/* Active Code Cards Grid (Only when expanded) */}
             {showUsedCodesSection && (() => {
               const usersWithCode = realStats.usersList.filter((u) => u.activationCode || u.isActivated);
+              const expiredUsers = realStats.usersList.filter((u) => isUserSubscriptionExpired(u));
+              const activeUsers = usersWithCode.filter((u) => !isUserSubscriptionExpired(u) && !u.isBlocked);
 
-              if (usersWithCode.length === 0) {
-                return (
-                  <div className="text-center py-6 bg-white/5 rounded-2xl border border-white/10 space-y-1.5">
-                    <span className="material-symbols-outlined text-slate-400 text-2xl">key_off</span>
-                    <p className="text-xs font-semibold text-slate-200">
-                      Nenhum código de acesso utilizado registrado ainda.
-                    </p>
-                    <p className="text-[11px] text-slate-400 max-w-md mx-auto">
-                      Assim que um candidato inserir um código no NgolaTeste para ativar uma especialidade, ele aparecerá aqui.
-                    </p>
-                  </div>
-                );
+              let displayList = usersWithCode;
+              if (usedCodesSubTab === 'active') {
+                displayList = activeUsers;
+              } else if (usedCodesSubTab === 'expired') {
+                displayList = expiredUsers;
+              } else if (usedCodesSubTab === 'all') {
+                displayList = realStats.usersList;
               }
 
               return (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {usersWithCode.map((user) => {
-                    const isUserBlocked = Boolean(user.isBlocked);
-                    return (
-                      <div
-                        key={user.phone}
-                        className={`backdrop-blur-md rounded-xl p-3.5 border transition-all space-y-2.5 ${
-                          isUserBlocked
-                            ? 'bg-red-950/40 border-red-500/40'
-                            : 'bg-white/10 border-white/15 hover:border-blue-400/50'
+                <div className="space-y-3.5">
+                  {/* Sub-filter tabs */}
+                  <div className="flex items-center justify-between flex-wrap gap-2 text-xs">
+                    <div className="inline-flex rounded-xl bg-black/30 p-1 border border-white/10 flex-wrap gap-1">
+                      <button
+                        type="button"
+                        onClick={() => setUsedCodesSubTab('with_code')}
+                        className={`px-3 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          usedCodesSubTab === 'with_code'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-300 hover:text-white'
                         }`}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <div className={`w-7 h-7 rounded-full font-black flex items-center justify-center text-xs shrink-0 ${
-                              isUserBlocked ? 'bg-red-600 text-white' : 'bg-blue-500 text-white'
+                        <span className="material-symbols-outlined text-xs">vpn_key</span>
+                        <span>Com Código ({usersWithCode.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUsedCodesSubTab('active')}
+                        className={`px-3 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          usedCodesSubTab === 'active'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'text-emerald-300 hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-xs">check_circle</span>
+                        <span>Ativos ({activeUsers.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUsedCodesSubTab('expired')}
+                        className={`px-3 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          usedCodesSubTab === 'expired'
+                            ? 'bg-slate-700 text-slate-100 border border-slate-500 shadow-xs'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-xs text-slate-300">event_busy</span>
+                        <span>Código Expirado ({expiredUsers.length})</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setUsedCodesSubTab('all')}
+                        className={`px-3 py-1 rounded-lg font-bold text-xs transition-all cursor-pointer flex items-center gap-1.5 ${
+                          usedCodesSubTab === 'all'
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'text-slate-300 hover:text-white'
+                        }`}
+                      >
+                        <span className="material-symbols-outlined text-xs">group</span>
+                        <span>Todos os Candidatos ({realStats.usersList.length})</span>
+                      </button>
+                    </div>
+
+                    <div className="text-[11px] text-blue-200/80 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-xs text-emerald-400">info</span>
+                      <span>Identificação visual em cinza para códigos com término de uso da inscrição</span>
+                    </div>
+                  </div>
+
+                  {displayList.length === 0 ? (
+                    <div className="text-center py-6 bg-white/5 rounded-2xl border border-white/10 space-y-1.5">
+                      <span className="material-symbols-outlined text-slate-400 text-2xl">key_off</span>
+                      <p className="text-xs font-semibold text-slate-200">
+                        Nenhum candidato encontrado nesta seleção.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                      {displayList.map((user) => {
+                        const isUserBlocked = Boolean(user.isBlocked);
+                        const isExpired = isUserSubscriptionExpired(user);
+                        const hasSimulations = (user.totalTestsTaken || 0) > 0 || Boolean(user.lastSimulationDate);
+                        const formattedDate = formatSimulationDate(user.lastSimulationDate, user.totalTestsTaken, user.phone);
+                        const formattedDateLong = formatSimulationDateLong(user.lastSimulationDate, user.totalTestsTaken, user.phone);
+
+                        return (
+                          <div
+                            key={user.phone}
+                            className={`backdrop-blur-md rounded-xl p-3.5 border transition-all space-y-2.5 ${
+                              isUserBlocked
+                                ? 'bg-red-950/40 border-red-500/40'
+                                : isExpired
+                                  ? 'bg-slate-900/90 border-slate-600/70 hover:border-slate-500 shadow-md ring-1 ring-slate-600/30'
+                                  : 'bg-white/10 border-white/15 hover:border-blue-400/50'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-2">
+                                <div className={`w-7 h-7 rounded-full font-black flex items-center justify-center text-xs shrink-0 ${
+                                  isUserBlocked
+                                    ? 'bg-red-600 text-white'
+                                    : isExpired
+                                      ? 'bg-slate-700 text-slate-300 border border-slate-500'
+                                      : 'bg-blue-500 text-white'
+                                }`}>
+                                  {user.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="font-bold text-xs text-white truncate max-w-[150px]">{user.name}</div>
+                                  <div className="text-[10px] text-slate-300 font-mono">{user.phone}</div>
+                                </div>
+                              </div>
+                              {isUserBlocked ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-500/20 text-red-300 border border-red-400/40 flex items-center gap-0.5">
+                                  <span className="material-symbols-outlined text-[10px]">block</span>
+                                  BLOQUEADO
+                                </span>
+                              ) : isExpired ? (
+                                <span className="px-2.5 py-0.5 rounded-full text-[9px] font-black bg-slate-700/90 text-slate-200 border border-slate-500/80 flex items-center gap-1 shadow-xs">
+                                  <span className="material-symbols-outlined text-[11px] text-slate-300">event_busy</span>
+                                  CÓDIGO EXPIRADO
+                                </span>
+                              ) : user.isActivated ? (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5">
+                                  <span className="material-symbols-outlined text-[10px]">check_circle</span>
+                                  ATIVO
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-slate-600/30 text-slate-300 border border-slate-500/30 flex items-center gap-0.5">
+                                  GRATUITO
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Code Box */}
+                            <div className={`rounded-lg p-2 border flex items-center justify-between ${
+                              isExpired ? 'bg-slate-800/80 border-slate-600/50' : 'bg-black/30 border-white/10'
                             }`}>
-                              {user.name.charAt(0).toUpperCase()}
+                              <div className="space-y-0.5">
+                                <div className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold flex items-center gap-1">
+                                  <span>Código Utilizado:</span>
+                                  {isExpired && (
+                                    <span className="text-[9px] font-bold text-slate-300 bg-slate-700 px-1 py-0.2 rounded border border-slate-500/50">
+                                      Expirado
+                                    </span>
+                                  )}
+                                </div>
+                                <div className={`font-mono font-black text-[11px] tracking-wider flex items-center gap-1 ${
+                                  isExpired ? 'text-slate-300' : 'text-amber-300'
+                                }`}>
+                                  <span className={`material-symbols-outlined text-[11px] ${isExpired ? 'text-slate-400' : 'text-amber-400'}`}>vpn_key</span>
+                                  {user.activationCode || (user.isActivated ? 'ATIVADO MANUALMENTE' : 'SEM CÓDIGO (GRÁTIS)')}
+                                </div>
+                              </div>
+                              {user.activationCode && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleCopyCode(user.activationCode!)}
+                                  className="p-1 bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white rounded-md transition-all cursor-pointer"
+                                  title="Copiar código"
+                                >
+                                  <span className="material-symbols-outlined text-xs">content_copy</span>
+                                </button>
+                              )}
                             </div>
-                            <div>
-                              <div className="font-bold text-xs text-white truncate max-w-[150px]">{user.name}</div>
-                              <div className="text-[10px] text-slate-300 font-mono">{user.phone}</div>
-                            </div>
-                          </div>
-                          {isUserBlocked ? (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-red-500/20 text-red-300 border border-red-400/40 flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-[10px]">block</span>
-                              BLOQUEADO
-                            </span>
-                          ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 flex items-center gap-0.5">
-                              <span className="material-symbols-outlined text-[10px]">check_circle</span>
-                              ATIVO
-                            </span>
-                          )}
-                        </div>
 
-                        {/* Code Box */}
-                        <div className="bg-black/30 rounded-lg p-2 border border-white/10 flex items-center justify-between">
-                          <div className="space-y-0.5">
-                            <div className="text-[9px] text-slate-400 uppercase tracking-wider font-semibold">
-                              Código Utilizado:
-                            </div>
-                            <div className="font-mono font-black text-amber-300 text-[11px] tracking-wider flex items-center gap-1">
-                              <span className="material-symbols-outlined text-[11px] text-amber-400">vpn_key</span>
-                              {user.activationCode || 'ATIVADO MANUALMENTE'}
-                            </div>
-                          </div>
-                          {user.activationCode && (
-                            <button
-                              type="button"
-                              onClick={() => handleCopyCode(user.activationCode!)}
-                              className="p-1 bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white rounded-md transition-all cursor-pointer"
-                              title="Copiar código"
-                            >
-                              <span className="material-symbols-outlined text-xs">content_copy</span>
-                            </button>
-                          )}
-                        </div>
-
-                        {/* Specialization & Expiration */}
-                        <div className="flex items-center justify-between text-[10px] text-slate-300 pt-1 border-t border-white/10">
-                          <div className="flex items-center gap-1 text-blue-200">
-                            <span className="material-symbols-outlined text-[11px]">school</span>
-                            <span className="truncate max-w-[120px]">
-                              {user.activatedSpecializations && user.activatedSpecializations.length > 0
-                                ? user.activatedSpecializations.join(', ')
-                                : 'Acesso Geral'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5">
-                            {user.expiresAt && (
-                              <div className="text-slate-400 text-[9px]">
-                                Exp: <strong className="text-white">{user.expiresAt}</strong>
+                            {/* ZONA DE STATUS EM CINZA: TÉRMINO DE USO DA INSCRIÇÃO (APENAS QUANDO EXPIRADO) */}
+                            {isExpired && (
+                              <div className="bg-slate-800/90 rounded-xl p-2.5 border border-slate-600/80 space-y-1 text-slate-300 shadow-inner">
+                                <div className="flex items-center justify-between">
+                                  <div className="flex items-center gap-1.5 text-slate-200 font-bold uppercase tracking-wider text-[10px]">
+                                    <span className="material-symbols-outlined text-slate-400 text-sm">event_busy</span>
+                                    <span>Término de Uso da Inscrição</span>
+                                  </div>
+                                  <span className="font-mono font-black text-[9px] px-2 py-0.5 rounded bg-slate-700 text-slate-200 border border-slate-500/60 uppercase">
+                                    Código Expirado
+                                  </span>
+                                </div>
+                                <div className="text-[10px] text-slate-400 flex items-center justify-between pt-0.5">
+                                  <span>
+                                    {user.expiresAt ? `Prazo encerrado em: ${user.expiresAt}` : 'O prazo de validade do código expirou.'}
+                                  </span>
+                                  <span className="text-[9px] text-slate-400 font-semibold bg-slate-900/60 px-1.5 py-0.5 rounded border border-slate-700/60">
+                                    Acesso Vencido
+                                  </span>
+                                </div>
                               </div>
                             )}
-                            <button
-                              type="button"
-                              onClick={() => {
-                                if (isUserBlocked) {
-                                  handleToggleUserBlock(user, false);
-                                } else {
-                                  setBlockModalUser(user);
-                                }
-                              }}
-                              className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 ${
-                                isUserBlocked
-                                  ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40'
-                                  : 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40'
-                              }`}
-                              title={isUserBlocked ? 'Desbloquear usuário' : 'Bloquear usuário por comportamento irregular'}
-                            >
-                              <span className="material-symbols-outlined text-[10px]">
-                                {isUserBlocked ? 'lock_open' : 'block'}
-                              </span>
-                              <span>{isUserBlocked ? 'Desbloquear' : 'Bloquear'}</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteModalUser(user)}
-                              className="px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 bg-red-600/30 text-red-200 hover:bg-red-600/50 border border-red-500/50"
-                              title="Eliminar utilizador permanentemente"
-                            >
-                              <span className="material-symbols-outlined text-[10px]">delete</span>
-                              <span>Eliminar</span>
-                            </button>
+
+                            {/* DATA DA ÚLTIMA SIMULAÇÃO (DIA, MÊS E ANO) */}
+                            <div className="bg-slate-950/70 rounded-xl p-2.5 border border-white/10 space-y-1.5 shadow-inner">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <div className="flex items-center gap-1.5 text-blue-200 font-semibold uppercase tracking-wider text-[10px]">
+                                  <span className="material-symbols-outlined text-emerald-400 text-sm">calendar_month</span>
+                                  <span>Última Simulação:</span>
+                                </div>
+                                <span className={`font-mono font-black text-xs px-2 py-0.5 rounded border inline-flex items-center gap-1 ${
+                                  hasSimulations
+                                    ? 'text-emerald-300 bg-emerald-500/20 border-emerald-400/40'
+                                    : 'text-slate-400 bg-white/5 border-white/10'
+                                }`}>
+                                  {hasSimulations && <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>}
+                                  <span>{formattedDate}</span>
+                                </span>
+                              </div>
+                              <div className="flex items-center justify-between text-[10px] text-slate-300 pt-1 border-t border-white/10">
+                                <span className="text-slate-400 truncate max-w-[150px]" title={formattedDateLong}>
+                                  {formattedDateLong}
+                                </span>
+                                <span className="font-bold text-slate-200 shrink-0">
+                                  {user.totalTestsTaken || 0} {user.totalTestsTaken === 1 ? 'simulado' : 'simulados'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Specialization & Expiration */}
+                            <div className="flex items-center justify-between text-[10px] text-slate-300 pt-1 border-t border-white/10">
+                              <div className="flex items-center gap-1 text-blue-200">
+                                <span className="material-symbols-outlined text-[11px]">school</span>
+                                <span className="truncate max-w-[120px]">
+                                  {user.activatedSpecializations && user.activatedSpecializations.length > 0
+                                    ? user.activatedSpecializations.join(', ')
+                                    : 'Acesso Geral'}
+                                </span>
+                              </div>
+                              <div className="flex items-center gap-1.5">
+                                {user.expiresAt && (
+                                  <div className={`text-[9px] ${isExpired ? 'text-slate-400' : 'text-slate-300'}`}>
+                                    Exp: <strong className={isExpired ? 'text-slate-300' : 'text-white'}>{user.expiresAt}</strong>
+                                    {isExpired && <span className="ml-0.5 text-slate-400 font-bold">(Expirado)</span>}
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleToggleUserActivation(user.phone, Boolean(user.isActivated))}
+                                  disabled={togglingUserPhone === user.phone}
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 ${
+                                    isExpired
+                                      ? 'bg-blue-600/40 text-blue-200 hover:bg-blue-600/60 border border-blue-400/40'
+                                      : user.isActivated
+                                        ? 'bg-slate-700/60 text-slate-300 hover:bg-slate-700 border border-slate-500/40'
+                                        : 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40'
+                                  }`}
+                                  title={isExpired ? 'Renovar inscrição por mais 14 dias' : user.isActivated ? 'Desativar acesso' : 'Ativar acesso'}
+                                >
+                                  <span className="material-symbols-outlined text-[10px]">
+                                    {isExpired ? 'history' : user.isActivated ? 'cancel' : 'check'}
+                                  </span>
+                                  <span>{isExpired ? 'Reativar' : user.isActivated ? 'Desativar' : 'Ativar'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (isUserBlocked) {
+                                      handleToggleUserBlock(user, false);
+                                    } else {
+                                      setBlockModalUser(user);
+                                    }
+                                  }}
+                                  className={`px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 ${
+                                    isUserBlocked
+                                      ? 'bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 border border-emerald-500/40'
+                                      : 'bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40'
+                                  }`}
+                                  title={isUserBlocked ? 'Desbloquear usuário' : 'Bloquear usuário por comportamento irregular'}
+                                >
+                                  <span className="material-symbols-outlined text-[10px]">
+                                    {isUserBlocked ? 'lock_open' : 'block'}
+                                  </span>
+                                  <span>{isUserBlocked ? 'Desbloquear' : 'Bloquear'}</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setDeleteModalUser(user)}
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold cursor-pointer transition-all flex items-center gap-0.5 bg-red-600/30 text-red-200 hover:bg-red-600/50 border border-red-500/50"
+                                  title="Eliminar utilizador permanentemente"
+                                >
+                                  <span className="material-symbols-outlined text-[10px]">delete</span>
+                                  <span>Eliminar</span>
+                                </button>
+                              </div>
+                            </div>
                           </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -5803,7 +6096,19 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Ativos ({realStats.usersList.filter((u) => u.isActivated && !u.isBlocked).length})
+                    Ativos ({realStats.usersList.filter((u) => u.isActivated && !u.isBlocked && !isUserSubscriptionExpired(u)).length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setUserFilterStatus('expired')}
+                    className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer flex items-center gap-1 ${
+                      userFilterStatus === 'expired'
+                        ? 'bg-slate-700 text-white shadow-sm'
+                        : 'text-slate-600 hover:bg-slate-200'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-xs">event_busy</span>
+                    <span>Código Expirado ({realStats.usersList.filter((u) => isUserSubscriptionExpired(u)).length})</span>
                   </button>
                   <button
                     type="button"
@@ -5814,7 +6119,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                         : 'text-slate-600 hover:text-slate-900'
                     }`}
                   >
-                    Gratuitos ({realStats.usersList.filter((u) => !u.isActivated && !u.isBlocked).length})
+                    Gratuitos ({realStats.usersList.filter((u) => !u.isActivated && !u.isBlocked && !isUserSubscriptionExpired(u)).length})
                   </button>
                   <button
                     type="button"
@@ -5859,9 +6164,10 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
 
                 const matchesStatus =
                   userFilterStatus === 'all' ||
-                  (userFilterStatus === 'activated' && u.isActivated && !u.isBlocked) ||
+                  (userFilterStatus === 'activated' && u.isActivated && !u.isBlocked && !isUserSubscriptionExpired(u)) ||
+                  (userFilterStatus === 'expired' && isUserSubscriptionExpired(u)) ||
                   (userFilterStatus === 'with_code' && Boolean(u.activationCode)) ||
-                  (userFilterStatus === 'free' && !u.isActivated && !u.isBlocked) ||
+                  (userFilterStatus === 'free' && !u.isActivated && !u.isBlocked && !isUserSubscriptionExpired(u)) ||
                   (userFilterStatus === 'blocked' && Boolean(u.isBlocked));
 
                 return matchesSearch && matchesStatus;
@@ -5887,7 +6193,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                         <th className="py-3 px-3">Telefone & E-mail</th>
                         <th className="py-3 px-3">Código de Acesso Utilizado</th>
                         <th className="py-3 px-3">Estado & Acesso</th>
-                        <th className="py-3 px-3">Simulados</th>
+                        <th className="py-3 px-3">Simulados & Última Data</th>
                         <th className="py-3 px-3">Média</th>
                         <th className="py-3 px-3 text-right">Ações de Gestão & Bloqueio</th>
                       </tr>
@@ -5897,20 +6203,29 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                         const isToggling = togglingUserPhone === user.phone;
                         const isTogglingBlock = togglingBlockPhone === user.phone;
                         const isUserBlocked = Boolean(user.isBlocked);
+                        const isExpired = isUserSubscriptionExpired(user);
                         const cleanPhoneDigits = user.phone.replace(/\D/g, '');
 
                         return (
                           <tr
                             key={user.phone}
                             className={`transition-colors ${
-                              isUserBlocked ? 'bg-red-50/40 hover:bg-red-50/70' : 'hover:bg-slate-50/80'
+                              isUserBlocked
+                                ? 'bg-red-50/40 hover:bg-red-50/70'
+                                : isExpired
+                                  ? 'bg-slate-50/80 hover:bg-slate-100/80'
+                                  : 'hover:bg-slate-50/80'
                             }`}
                           >
                             <td className="py-3.5 px-3">
                               <div className="flex items-center gap-2.5">
                                 <div
                                   className={`w-8 h-8 rounded-full font-black flex items-center justify-center text-xs flex-shrink-0 ${
-                                    isUserBlocked ? 'bg-red-100 text-red-700 border border-red-200' : 'bg-blue-100 text-blue-700'
+                                    isUserBlocked
+                                      ? 'bg-red-100 text-red-700 border border-red-200'
+                                      : isExpired
+                                        ? 'bg-slate-200 text-slate-700 border border-slate-300'
+                                        : 'bg-blue-100 text-blue-700'
                                   }`}
                                 >
                                   {user.name.charAt(0).toUpperCase()}
@@ -5921,6 +6236,11 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                                     {isUserBlocked && (
                                       <span className="px-1.5 py-0.2 bg-red-100 text-red-800 text-[9px] font-bold rounded-md border border-red-200">
                                         BLOQUEADO
+                                      </span>
+                                    )}
+                                    {isExpired && !isUserBlocked && (
+                                      <span className="px-1.5 py-0.2 bg-slate-200 text-slate-700 text-[9px] font-bold rounded-md border border-slate-300">
+                                        EXPIRADO
                                       </span>
                                     )}
                                   </span>
@@ -5942,8 +6262,12 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                             <td className="py-3.5 px-3">
                               {user.activationCode ? (
                                 <div className="space-y-1">
-                                  <div className="inline-flex items-center gap-1.5 bg-blue-50 text-blue-900 px-2.5 py-1 rounded-lg border border-blue-200">
-                                    <span className="material-symbols-outlined text-xs text-blue-600">vpn_key</span>
+                                  <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${
+                                    isExpired
+                                      ? 'bg-slate-100 text-slate-800 border-slate-300'
+                                      : 'bg-blue-50 text-blue-900 border-blue-200'
+                                  }`}>
+                                    <span className={`material-symbols-outlined text-xs ${isExpired ? 'text-slate-500' : 'text-blue-600'}`}>vpn_key</span>
                                     <span className="font-mono font-black text-xs">{user.activationCode}</span>
                                     <button
                                       type="button"
@@ -5987,6 +6311,16 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                                     </div>
                                   )}
                                 </div>
+                              ) : isExpired ? (
+                                <div className="space-y-0.5">
+                                  <span className="inline-flex items-center gap-1 bg-slate-200 text-slate-700 font-bold px-2.5 py-1 rounded-full text-[11px] border border-slate-300 shadow-2xs">
+                                    <span className="material-symbols-outlined text-xs text-slate-500">event_busy</span>
+                                    <span>Código Expirado</span>
+                                  </span>
+                                  <div className="text-[10px] text-slate-500 font-medium">
+                                    {user.expiresAt ? `Término de uso: ${user.expiresAt}` : 'Inscrição vencida'}
+                                  </div>
+                                </div>
                               ) : user.isActivated ? (
                                 <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded-full text-[11px] border border-emerald-200">
                                   <span className="material-symbols-outlined text-xs">check_circle</span>
@@ -6000,9 +6334,26 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                             </td>
 
                             <td className="py-3.5 px-3">
-                              <span className="font-bold text-slate-800">
-                                {user.totalTestsTaken || 0} simulados
-                              </span>
+                              <div className="space-y-1">
+                                <span className="font-bold text-slate-900 block">
+                                  {user.totalTestsTaken || 0} {user.totalTestsTaken === 1 ? 'simulado' : 'simulados'}
+                                </span>
+                                <div
+                                  className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-md border ${
+                                    (user.totalTestsTaken || 0) > 0 || user.lastSimulationDate
+                                      ? 'text-blue-700 bg-blue-50 border-blue-200'
+                                      : 'text-slate-400 bg-slate-50 border-slate-200'
+                                  }`}
+                                  title={`Última simulação: ${formatSimulationDateLong(user.lastSimulationDate, user.totalTestsTaken, user.phone)}`}
+                                >
+                                  <span className={`material-symbols-outlined text-[13px] ${
+                                    (user.totalTestsTaken || 0) > 0 || user.lastSimulationDate ? 'text-blue-600' : 'text-slate-400'
+                                  }`}>calendar_month</span>
+                                  <span className="font-mono font-bold">
+                                    {formatSimulationDate(user.lastSimulationDate, user.totalTestsTaken, user.phone)}
+                                  </span>
+                                </div>
+                              </div>
                             </td>
 
                             <td className="py-3.5 px-3">
@@ -6031,15 +6382,22 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                                 <button
                                   type="button"
                                   disabled={isToggling || isUserBlocked}
-                                  onClick={() => handleToggleUserActivation(user.phone, user.isActivated)}
+                                  onClick={() => handleToggleUserActivation(user.phone, Boolean(user.isActivated))}
                                   className={`px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-                                    user.isActivated
-                                      ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
-                                      : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
+                                    isExpired
+                                      ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                                      : user.isActivated
+                                        ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-300'
+                                        : 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs'
                                   } ${(isToggling || isUserBlocked) ? 'opacity-40 cursor-not-allowed' : ''}`}
-                                  title={isUserBlocked ? 'Desbloqueie o usuário para alterar o plano' : ''}
+                                  title={isUserBlocked ? 'Desbloqueie o usuário para alterar o plano' : isExpired ? 'Renovar inscrição por mais 14 dias' : ''}
                                 >
-                                  {user.isActivated ? (
+                                  {isExpired ? (
+                                    <>
+                                      <span className="material-symbols-outlined text-xs">history</span>
+                                      <span>Renovar (14d)</span>
+                                    </>
+                                  ) : user.isActivated ? (
                                     <>
                                       <span className="material-symbols-outlined text-xs">close</span>
                                       <span>Desativar</span>
