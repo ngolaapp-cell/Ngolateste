@@ -2708,7 +2708,7 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     {newCatStatusTag === 'LIBERADO' && (
                       <span className="text-[10px] bg-blue-600 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
                         <span className="material-symbols-outlined text-xs">lock_clock</span>
-                        <span>5 Simulações Grátis</span>
+                        <span>3 Simulações Grátis</span>
                       </span>
                     )}
                     {newCatStatusTag === 'GRÁTIS' && (
@@ -2719,8 +2719,8 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     )}
                     {newCatStatusTag === 'NOVO' && (
                       <span className="text-[10px] bg-amber-500 text-white font-black px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-xs">
-                        <span className="material-symbols-outlined text-xs">star</span>
-                        <span>Destaque + 5 Grátis</span>
+                        <span className="material-symbols-outlined text-xs">vpn_key</span>
+                        <span>Destaque + Requer Senha</span>
                       </span>
                     )}
                     {newCatStatusTag === 'EM BREVE' && (
@@ -2735,16 +2735,16 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                     onChange={(e) => setNewCatStatusTag(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm font-semibold outline-none focus:ring-2 focus:ring-blue-500/20"
                   >
-                    <option value="LIBERADO">Liberado (o utilizador pode fazer 5 simulações grátis, após isto tem que aparecer a página de inscrição, só poderá continuar a testar esta categoria se tiver ativado a inscrição)</option>
-                    <option value="GRÁTIS">Grátis (que é 100% gratuito sem pagar inscrição ou código)</option>
-                    <option value="NOVO">Novo (deve aparecer em destaque nas categorias, e o utilizador pode fazer 5 simulações grátis, após isto tem que aparecer a página de inscrição, só poderá continuar a testar esta categoria se tiver ativado a inscrição)</option>
+                    <option value="LIBERADO">Liberado (o utilizador faz 3 testes grátis; após isto vai pedir senha de ativação para continuar)</option>
+                    <option value="GRÁTIS">Grátis (100% gratuito sem pagar inscrição ou código)</option>
+                    <option value="NOVO">Novo (em destaque nas categorias; ao clicar nos módulos vai pedir senha de ativação, sem testes grátis)</option>
                     <option value="EM BREVE">Em breve aguardando exames</option>
                   </select>
                   <div className="text-[11px] mt-2 font-medium">
                     {newCatStatusTag === 'LIBERADO' ? (
                       <div className="p-2.5 rounded-xl bg-blue-50/80 border border-blue-200/70 text-blue-800 flex items-start gap-2">
                         <span className="material-symbols-outlined text-sm text-blue-600 mt-0.5 shrink-0">info</span>
-                        <span><strong>Liberado:</strong> O utilizador pode fazer 5 simulações grátis nesta categoria. Após estas 5 tentativas, é exibida a página de inscrição e só poderá continuar a testar esta categoria se tiver ativado a inscrição.</span>
+                        <span><strong>Liberado:</strong> O utilizador pode fazer 3 testes grátis. Serão somente 3 testes grátis, após isto também vai pedir senha de ativação para continuar a testar.</span>
                       </div>
                     ) : newCatStatusTag === 'GRÁTIS' ? (
                       <div className="p-2.5 rounded-xl bg-emerald-50/80 border border-emerald-200/70 text-emerald-800 flex items-start gap-2">
@@ -2753,8 +2753,8 @@ EXPLICAÇÃO: Moxico é a maior província em extensão territorial em Angola.`;
                       </div>
                     ) : newCatStatusTag === 'NOVO' ? (
                       <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200/70 text-amber-800 flex items-start gap-2">
-                        <span className="material-symbols-outlined text-sm text-amber-600 mt-0.5 shrink-0">star</span>
-                        <span><strong>Novo:</strong> Deve aparecer em destaque nas categorias, e o utilizador pode fazer 5 simulações grátis; após isto surge a página de inscrição e só poderá continuar se tiver ativado a inscrição.</span>
+                        <span className="material-symbols-outlined text-sm text-amber-600 mt-0.5 shrink-0">vpn_key</span>
+                        <span><strong>Novo:</strong> Surge em destaque nas categorias. Quando o utilizador clicar nos módulos que tiver nela, vai pedir senha de ativação (não faz 5 testes grátis).</span>
                       </div>
                     ) : (
                       <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200 text-slate-700 flex items-start gap-2">

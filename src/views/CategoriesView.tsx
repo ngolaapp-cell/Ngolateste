@@ -11,6 +11,7 @@ import {
   isCategoryComingSoon,
   isFreeStatusTag,
 } from '../utils/accessControl';
+import { isUserSubscriptionExpired } from '../utils/dateUtils';
 
 interface CategoriesViewProps {
   categories?: Category[];
@@ -129,10 +130,10 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             : currentCatAccess?.isUnlimitedFree
             ? `🎉 Acesso 100% Gratuito! Todos os testes e simulados de ${currentCategoryName} estão liberados para todos os candidatos, sem pagar inscrição ou código.`
             : isCategoryNew(activeCategoryObj)
-            ? `✨ Nova categoria em destaque! Pode realizar até 5 simulações grátis. Após estas, é solicitada a ativação da inscrição.`
+            ? `✨ Nova categoria em destaque! Os módulos e simulados requerem senha de ativação para acesso.`
             : currentCategoryName
-            ? `Categoria liberada com 5 simulações gratuitas. Após o 5º simulado, ative a sua inscrição para continuar a testar.`
-            : 'Explore as especialidades dos concursos públicos. Categorias grátis têm acesso ilimitado; categorias liberadas e novas incluem 5 simulações gratuitas de teste.'}
+            ? `Categoria liberada com 3 simulações gratuitas. Após o 3º simulado, insira a sua senha de ativação para continuar a testar.`
+            : 'Explore as especialidades dos concursos públicos. Categorias grátis têm acesso ilimitado; categorias liberadas incluem 3 simulações gratuitas e categorias novas requerem senha de ativação.'}
         </p>
       </header>
 
@@ -204,13 +205,21 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
             displayCategories
           );
 
+          const isTargetCatNovo = isCategoryNew(activeCategoryObj || selectedCategory);
+          const isUserExpired = userProfile ? isUserSubscriptionExpired(userProfile) : false;
+
           const handleCardClick = () => {
             if (access.isComingSoon) {
               alert('Em breve aguardando exames. Esta categoria está em preparação pela equipa pedagógica.');
               return;
             }
-            if (!access.canAccess) {
-              alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, ative a sua inscrição.');
+            if (isUserExpired && !access.isUnlimitedFree) {
+              alert(access.message || 'A sua subscrição expirou e o prazo da sua senha terminou. Para voltar a utilizar esta especialidade, por favor adquira e ative um novo código de ativação.');
+              onNavigate('activation');
+              return;
+            }
+            if (!access.canAccess && !isTargetCatNovo) {
+              alert(access.message || 'Completou as suas 3 simulações gratuitas nesta categoria. Para continuar a testar, por favor insira a senha de ativação.');
               onNavigate('activation');
               return;
             }
@@ -226,6 +235,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                   ? 'bg-blue-50/90 border-blue-500 shadow-lg ring-2 ring-blue-500/30'
                   : access.isUnlimitedFree
                   ? 'bg-white border-emerald-300 hover:border-emerald-500 hover:shadow-xl hover:-translate-y-1'
+                  : isUserExpired
+                  ? 'bg-white border-rose-200 hover:border-rose-400 hover:shadow-xl hover:-translate-y-1'
                   : access.isActivated
                   ? 'bg-white border-blue-200 hover:border-blue-400 hover:shadow-xl hover:-translate-y-1'
                   : access.isComingSoon
@@ -261,6 +272,11 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                       <span className="material-symbols-outlined text-xs">savings</span>
                       <span>100% Grátis</span>
                     </span>
+                  ) : isUserExpired ? (
+                    <span className="bg-rose-600/95 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-rose-300/50 shadow-md flex items-center gap-1">
+                      <span className="material-symbols-outlined text-xs">event_busy</span>
+                      <span>Prazo Expirado</span>
+                    </span>
                   ) : access.isActivated ? (
                     <span className="bg-emerald-500/90 backdrop-blur-md text-white text-[11px] font-black px-3 py-1 rounded-full border border-emerald-300/40 shadow-sm flex items-center gap-1">
                       <span className="material-symbols-outlined text-xs">check_circle</span>
@@ -287,6 +303,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     className={`w-13 h-13 flex items-center justify-center rounded-2xl shadow-lg border ${
                       access.isUnlimitedFree
                         ? 'bg-emerald-600 text-white border-emerald-500'
+                        : isUserExpired
+                        ? 'bg-rose-600 text-white border-rose-500'
                         : access.isActivated
                         ? 'bg-blue-600 text-white border-blue-500'
                         : access.isComingSoon
@@ -305,6 +323,8 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                         ? 'bg-slate-200 text-slate-700'
                         : access.isUnlimitedFree
                         ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : isUserExpired
+                        ? 'bg-rose-600 hover:bg-rose-700 text-white'
                         : access.isActivated
                         ? 'bg-blue-600 hover:bg-blue-700 text-white'
                         : access.canAccess
@@ -313,11 +333,13 @@ export const CategoriesView: React.FC<CategoriesViewProps> = ({
                     }`}
                   >
                     <span className="material-symbols-outlined text-sm">
-                      {access.isComingSoon ? 'schedule' : access.canAccess ? 'arrow_forward' : 'vpn_key'}
+                      {access.isComingSoon ? 'schedule' : isUserExpired ? 'event_busy' : access.canAccess ? 'arrow_forward' : 'vpn_key'}
                     </span>
                     <span>
                       {access.isComingSoon
                         ? 'Aguardando Exames'
+                        : isUserExpired && !access.isUnlimitedFree
+                        ? 'Reativar Código'
                         : access.isUnlimitedFree
                         ? 'Aceder Módulos (Grátis)'
                         : access.isActivated

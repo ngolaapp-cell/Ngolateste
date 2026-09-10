@@ -7,7 +7,9 @@ import {
   checkIsCategoryFree,
   checkIsSpecializationFree,
   checkIsSpecializationUnlocked,
+  isCategoryNew,
 } from '../utils/accessControl';
+import { isUserSubscriptionExpired } from '../utils/dateUtils';
 
 interface TestModulesViewProps {
   modules?: TestModule[];
@@ -33,7 +35,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const allModules = modules;
 
-  // Evaluate access with the 4-tier model (Grátis, Liberado [5 free], Novo [5 free], Em breve)
+  // Evaluate access with the 4-tier model (Grátis, Liberado [3 free], Novo [requer senha], Em breve)
   const access = evaluateCategoryAccess(
     selectedCategory,
     userProfile,
@@ -41,7 +43,9 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
     categories
   );
 
+  const isNovo = isCategoryNew(selectedCategory);
   const isFree = access.isUnlimitedFree;
+  const isExpired = userProfile ? isUserSubscriptionExpired(userProfile) : false;
   const unlocked = access.canAccess;
 
   const handleModuleClick = (test: TestModule) => {
@@ -50,7 +54,13 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
       return;
     }
     if (!access.canAccess) {
-      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      if (isExpired) {
+        alert(access.message || 'A sua subscrição expirou e o prazo da sua senha terminou. Para voltar a utilizar as especialidades e realizar os simulados, por favor adquira e ative um novo código de ativação.');
+      } else if (isNovo) {
+        alert(access.message || 'Esta categoria do tipo Novo requer senha de ativação. Por favor ative a sua inscrição para aceder aos módulos e simulados.');
+      } else {
+        alert(access.message || 'Completou as suas 3 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição com a senha de ativação.');
+      }
       onNavigate('activation');
       return;
     }
@@ -172,6 +182,11 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
                 <span className="material-symbols-outlined text-xs">savings</span>
                 <span>100% Grátis</span>
               </span>
+            ) : isExpired ? (
+              <span className="bg-rose-100 text-rose-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-rose-300 flex items-center gap-1">
+                <span className="material-symbols-outlined text-xs">event_busy</span>
+                <span>Prazo Expirado</span>
+              </span>
             ) : access.isActivated ? (
               <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-0.5 rounded-full border border-emerald-300 flex items-center gap-1">
                 <span className="material-symbols-outlined text-xs">check_circle</span>
@@ -239,8 +254,68 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
         </div>
       )}
 
-      {/* 3. Trial Mode Banner (Up to 5 free simulations remaining) */}
-      {access.isTrial && access.remainingTrials > 0 && !access.isActivated && (
+      {/* 3. Expired Subscription Banner: Strict Expiration Enforcement */}
+      {isExpired && !access.isUnlimitedFree && !access.isComingSoon && (
+        <div className="mb-8 bg-gradient-to-r from-rose-600 via-red-600 to-rose-700 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-rose-400">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-3xl text-white">event_busy</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="bg-white/20 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                  Prazo Encerrado
+                </span>
+                <h3 className="text-xl font-black">Senha de Ativação Expirada</h3>
+              </div>
+              <p className="text-rose-100 text-xs md:text-sm leading-relaxed max-w-lg">
+                O prazo de validade da sua subscrição terminou {userProfile?.expiresAt ? `em ${userProfile.expiresAt}` : ''}. O acesso às especialidades anteriormente ativadas foi suspenso. Para voltar a utilizar os simulados, por favor adquira e ative um novo código.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigate('activation')}
+            className="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-900 font-extrabold px-6 py-3.5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm cursor-pointer shrink-0"
+          >
+            <span className="material-symbols-outlined text-rose-600">vpn_key</span>
+            <span>Ativar Novo Código</span>
+          </button>
+        </div>
+      )}
+
+      {/* 4. Novo Category Banner: Immediate Activation Password Required */}
+      {!isExpired && isNovo && !access.isActivated && (
+        <div className="mb-8 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-amber-300/40">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-3xl text-white">vpn_key</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="bg-white/20 text-white text-[10px] font-black px-2 py-0.5 rounded-full uppercase tracking-wider">
+                  Novo Concurso
+                </span>
+                <h3 className="text-xl font-black">Requer Senha de Ativação</h3>
+              </div>
+              <p className="text-amber-100 text-xs md:text-sm leading-relaxed max-w-lg">
+                Esta categoria é do tipo <strong>Novo</strong>. Para realizar os simulados e aceder aos módulos, insira a sua senha de ativação.
+              </p>
+            </div>
+          </div>
+
+          <button
+            onClick={() => onNavigate('activation')}
+            className="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-900 font-extrabold px-6 py-3.5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm cursor-pointer shrink-0"
+          >
+            <span className="material-symbols-outlined text-amber-600">key</span>
+            <span>Inserir Senha de Ativação</span>
+          </button>
+        </div>
+      )}
+
+      {/* 5. Trial Mode Banner for Liberado (Up to 3 free simulations remaining) */}
+      {!isExpired && !isNovo && access.isTrial && access.remainingTrials > 0 && !access.isActivated && (
         <div className="mb-8 bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-blue-400/40">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
@@ -251,7 +326,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
                 Modo de Teste Gratuito: {access.remainingTrials} de {access.maxTrials} Restantes
               </h3>
               <p className="text-blue-100 text-xs md:text-sm leading-relaxed max-w-lg">
-                Pode realizar até <strong>5 simulações grátis</strong> nesta categoria. Já realizou {access.usedTrials} de {access.maxTrials}. Após a 5ª simulação, será exibida a página de inscrição para continuar.
+                Pode realizar até <strong>3 simulações grátis</strong> nesta categoria. Já realizou {access.usedTrials} de {access.maxTrials}. Após a 3ª simulação, é solicitada a senha de ativação para continuar.
               </p>
             </div>
           </div>
@@ -266,8 +341,8 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
         </div>
       )}
 
-      {/* 4. Trial Exhausted Banner (Must activate subscription) */}
-      {!access.canAccess && !access.isComingSoon && (
+      {/* 6. Trial Exhausted Banner for Liberado (Must activate subscription) */}
+      {!isExpired && !isNovo && !access.canAccess && !access.isComingSoon && (
         <div className="mb-8 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-3xl p-6 text-white shadow-xl flex flex-col md:flex-row items-center justify-between gap-6 border border-amber-400">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0">
@@ -275,10 +350,10 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             </div>
             <div>
               <h3 className="text-xl font-black mb-1">
-                Limite de 5 Simulações Grátis Concluído
+                Limite de 3 Simulações Grátis Concluído
               </h3>
               <p className="text-amber-100 text-xs md:text-sm leading-relaxed max-w-lg">
-                Concluiu as 5 simulações gratuitas de teste nesta categoria. Para continuar a realizar exames e ter acesso total, ative a sua inscrição (1.000 Kz por 2 semanas).
+                Concluiu as 3 simulações gratuitas de teste nesta categoria. Para continuar a realizar exames e ter acesso total, insira a sua senha de ativação.
               </p>
             </div>
           </div>
@@ -288,7 +363,7 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             className="w-full md:w-auto bg-white hover:bg-slate-50 text-slate-900 font-extrabold px-6 py-3.5 rounded-2xl shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2 text-sm cursor-pointer shrink-0"
           >
             <span className="material-symbols-outlined text-amber-600">vpn_key</span>
-            <span>Ativar Inscrição Agora</span>
+            <span>Inserir Senha de Ativação</span>
           </button>
         </div>
       )}
@@ -377,6 +452,8 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
             className={`rounded-2xl p-5 shadow-sm border transition-all group cursor-pointer block relative ${
               unlocked
                 ? 'bg-white border-slate-200/80 hover:shadow-md hover:border-blue-300'
+                : isExpired
+                ? 'bg-slate-50/90 border-rose-200 hover:border-rose-400 opacity-90'
                 : 'bg-slate-50/90 border-slate-200 hover:border-amber-400 opacity-90'
             }`}
           >
@@ -385,12 +462,16 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
                 className={`p-3 rounded-xl transition-colors ${
                   unlocked
                     ? 'bg-blue-50 text-blue-600 group-hover:bg-blue-600 group-hover:text-white'
+                    : isExpired
+                    ? 'bg-rose-100 text-rose-800 group-hover:bg-rose-600 group-hover:text-white'
                     : 'bg-amber-100 text-amber-800 group-hover:bg-amber-600 group-hover:text-white'
                 }`}
               >
                 <span className="material-symbols-outlined">
                   {!unlocked
-                    ? 'lock'
+                    ? isExpired
+                      ? 'event_busy'
+                      : 'lock'
                     : test.id.includes('especialidade') || test.id.includes('mod-')
                     ? 'school'
                     : test.id.includes('recurso')
@@ -403,9 +484,15 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
 
               <div className="flex items-center gap-1.5">
                 {!unlocked && (
-                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black bg-amber-100 text-amber-800 border border-amber-300 flex items-center gap-1">
-                    <span className="material-symbols-outlined text-[12px]">lock</span>
-                    REQUER CÓDIGO
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 ${
+                      isExpired
+                        ? 'bg-rose-100 text-rose-800 border-rose-300'
+                        : 'bg-amber-100 text-amber-800 border-amber-300'
+                    }`}
+                  >
+                    <span className="material-symbols-outlined text-[12px]">{isExpired ? 'event_busy' : 'lock'}</span>
+                    {isExpired ? 'CÓDIGO EXPIRADO' : isNovo ? 'REQUER SENHA' : 'REQUER ATIVAÇÃO'}
                   </span>
                 )}
                 {test.badge && (
@@ -439,10 +526,10 @@ export const TestModulesView: React.FC<TestModulesViewProps> = ({
 
             <div
               className={`mt-4 pt-4 border-t border-slate-100 flex items-center justify-between font-bold text-sm ${
-                unlocked ? 'text-blue-600' : 'text-amber-600'
+                unlocked ? 'text-blue-600' : isExpired ? 'text-rose-600' : 'text-amber-600'
               }`}
             >
-              <span>{unlocked ? 'Iniciar Teste' : 'Ativar Especialidade para Iniciar'}</span>
+              <span>{unlocked ? 'Iniciar Teste' : isExpired ? 'Reativar Código de Acesso' : isNovo ? 'Inserir Senha de Ativação' : 'Ativar Especialidade para Iniciar'}</span>
               <span className="material-symbols-outlined text-sm group-hover:translate-x-1 transition-transform">
                 {unlocked ? 'arrow_forward' : 'vpn_key'}
               </span>

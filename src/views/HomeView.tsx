@@ -146,8 +146,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       )}
                       {isNovo && (
                         <span className="bg-amber-500 text-white backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1 border border-amber-300">
-                          <span className="material-symbols-outlined text-xs">star</span>
-                          <span>NOVO (5 GRÁTIS)</span>
+                          <span className="material-symbols-outlined text-xs">vpn_key</span>
+                          <span>NOVO (REQUER SENHA)</span>
                         </span>
                       )}
                       {isEmBreve && (
@@ -159,7 +159,7 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {isLiberado && (
                         <span className="bg-blue-600 text-white backdrop-blur-sm text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider shadow-sm flex items-center gap-1 border border-blue-400">
                           <span className="material-symbols-outlined text-xs">lock_clock</span>
-                          <span>LIBERADO (5 GRÁTIS)</span>
+                          <span>LIBERADO (3 GRÁTIS)</span>
                         </span>
                       )}
                     </div>
@@ -178,8 +178,8 @@ export const HomeView: React.FC<HomeViewProps> = ({
                       {cat.description}
                     </p>
                     <div className="mt-auto flex items-center justify-between text-xs font-bold pt-2 border-t border-slate-100">
-                      <span className={isGratis ? 'text-emerald-600' : isEmBreve ? 'text-slate-500' : 'text-blue-600'}>
-                        {isGratis ? '100% Grátis' : isEmBreve ? 'Aguardando Exames' : '5 Simulações Grátis'}
+                      <span className={isGratis ? 'text-emerald-600' : isEmBreve ? 'text-slate-500' : isNovo ? 'text-amber-600' : 'text-blue-600'}>
+                        {isGratis ? '100% Grátis' : isEmBreve ? 'Aguardando Exames' : isNovo ? 'Requer Senha de Ativação' : '3 Simulações Grátis'}
                       </span>
                       <div className="flex items-center text-blue-600 group-hover:gap-1.5 transition-all">
                         <span>{isEmBreve ? 'Ver Detalhes' : 'Ver Especializações'}</span>

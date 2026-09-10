@@ -1,4 +1,5 @@
 import { Category, Specialization, UserProfile } from '../types';
+import { isUserSubscriptionExpired } from './dateUtils';
 
 /**
  * Normalizes string for comparison (removes accents, lowercase, trim)
@@ -13,9 +14,9 @@ export function normalizeText(str?: string | null): string {
 }
 
 /**
- * Maximum number of free simulations allowed for "LIBERADO" and "NOVO" categories
+ * Maximum number of free simulations allowed for "LIBERADO" categories
  */
-export const MAX_FREE_SIMULATIONS_PER_CATEGORY = 5;
+export const MAX_FREE_SIMULATIONS_PER_CATEGORY = 3;
 
 /**
  * Checks if a category status tag represents 100% free access without payment/code
@@ -41,7 +42,7 @@ export function isFreeStatusTag(statusTag?: string | null): boolean {
 }
 
 /**
- * Checks if a category status tag is "NOVO" (featured + 5 free simulations)
+ * Checks if a category status tag is "NOVO" (featured + requires activation password, 0 free tests)
  */
 export function isCategoryNew(categoryOrTag?: Category | string | null): boolean {
   if (!categoryOrTag) return false;
@@ -122,9 +123,9 @@ export interface CategoryAccessStatus {
 
 /**
  * Evaluates category access according to the 4 strict types:
- * 1. LIBERADO: 5 free simulations; after this, requires subscription/activation.
+ * 1. LIBERADO: 3 free simulations; after this, requires activation password.
  * 2. GRÁTIS: 100% free without inscription or code.
- * 3. NOVO: Highlighted in categories + 5 free simulations; then requires activation.
+ * 3. NOVO: Highlighted in categories; clicking its modules asks for activation password (0 free simulations).
  * 4. EM BREVE: Awaiting exams.
  */
 export function evaluateCategoryAccess(
@@ -133,7 +134,7 @@ export function evaluateCategoryAccess(
   specialization?: Specialization | null,
   categoriesList: Category[] = []
 ): CategoryAccessStatus {
-  const maxTrials = MAX_FREE_SIMULATIONS_PER_CATEGORY;
+  const maxTrials = MAX_FREE_SIMULATIONS_PER_CATEGORY; // 3 free trials for LIBERADO
 
   // 1. Blocked account
   if (userProfile?.isBlocked) {
@@ -150,21 +151,7 @@ export function evaluateCategoryAccess(
     };
   }
 
-  // 2. Global platform access (Admin, VIP, Global Plan or Activated Account)
-  if (checkHasFullPlatformAccess(userProfile)) {
-    return {
-      canAccess: true,
-      isUnlimitedFree: true,
-      isActivated: true,
-      isComingSoon: false,
-      isTrial: false,
-      remainingTrials: 9999,
-      usedTrials: 0,
-      maxTrials,
-    };
-  }
-
-  // 3. Find effective category
+  // Find effective category
   const normCatId = normalizeText(category?.id);
   const normCatName = normalizeText(category?.name);
   const effectiveCat =
@@ -180,8 +167,71 @@ export function evaluateCategoryAccess(
       );
     });
 
-  // 4. Check if specialization is explicitly activated
-  if (specialization && userProfile) {
+  // 2. Check if Category is "EM BREVE" (Aguardando exames)
+  if (isCategoryComingSoon(effectiveCat)) {
+    return {
+      canAccess: false,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: true,
+      isTrial: false,
+      remainingTrials: 0,
+      usedTrials: 0,
+      maxTrials,
+      message: 'Em breve aguardando exames. Esta categoria está em preparação pela equipa pedagógica.',
+    };
+  }
+
+  // 3. Check if Category is "GRÁTIS" (100% gratuito sem pagar inscrição ou código)
+  if (isFreeStatusTag(effectiveCat?.statusTag)) {
+    return {
+      canAccess: true,
+      isUnlimitedFree: true,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 9999,
+      usedTrials: 0,
+      maxTrials,
+    };
+  }
+
+  // 4. CRITICAL: Rigorous Subscription Expiration Enforcement!
+  // Candidates whose subscription/code has expired CANNOT continue using activated specializations or free trials.
+  // Whenever they want to use again, it MUST ask for an activation code to purchase and activate again.
+  const isExpired = userProfile ? isUserSubscriptionExpired(userProfile) : false;
+  if (isExpired && userProfile?.role !== 'admin') {
+    return {
+      canAccess: false,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 0,
+      usedTrials: maxTrials,
+      maxTrials,
+      message: userProfile?.expiresAt
+        ? `A sua subscrição expirou em ${userProfile.expiresAt} e a sua senha de ativação já não é válida. Para voltar a utilizar as especialidades e simulados, por favor adquira e ative um novo código de ativação.`
+        : 'O prazo do seu código de ativação expirou. Para voltar a utilizar esta especialidade, por favor adquira e ative um novo código de ativação.',
+    };
+  }
+
+  // 5. Global platform access (Admin, VIP, Global Plan or Activated Account - ONLY when not expired)
+  if (checkHasFullPlatformAccess(userProfile)) {
+    return {
+      canAccess: true,
+      isUnlimitedFree: true,
+      isActivated: true,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 9999,
+      usedTrials: 0,
+      maxTrials,
+    };
+  }
+
+  // 6. Check if specialization is explicitly activated
+  if (specialization && userProfile && !isExpired) {
     const activatedList = userProfile.activatedSpecializations || [];
     const normSpecId = normalizeText(specialization.id);
     const normSpecTitle = normalizeText(specialization.title);
@@ -209,8 +259,8 @@ export function evaluateCategoryAccess(
     }
   }
 
-  // 5. Check if category is explicitly activated
-  if (effectiveCat && userProfile) {
+  // 7. Check if category is explicitly activated
+  if (effectiveCat && userProfile && !isExpired) {
     const activatedList = userProfile.activatedSpecializations || [];
     const normEffectiveCatId = normalizeText(effectiveCat.id);
     const normEffectiveCatName = normalizeText(effectiveCat.name);
@@ -264,7 +314,22 @@ export function evaluateCategoryAccess(
     };
   }
 
-  // 8. "LIBERADO" ou "NOVO": O utilizador pode fazer até 5 simulações grátis
+  // 8. "NOVO": Quando o utilizador clicar nos módulos que tiver nela, vai pedir senha de ativação, não faz testes grátis
+  if (isCategoryNew(effectiveCat)) {
+    return {
+      canAccess: false,
+      isUnlimitedFree: false,
+      isActivated: false,
+      isComingSoon: false,
+      isTrial: false,
+      remainingTrials: 0,
+      usedTrials: 0,
+      maxTrials: 0,
+      message: 'Esta categoria do tipo Novo requer senha de ativação. Por favor insira a sua senha de ativação para aceder aos módulos e simulados.',
+    };
+  }
+
+  // 9. "LIBERADO": Somente a categoria "liberado" faz 3 testes grátis. Após isto, também pede senha de ativação.
   const catIdentifier =
     effectiveCat?.id ||
     effectiveCat?.name ||
@@ -288,7 +353,7 @@ export function evaluateCategoryAccess(
     };
   }
 
-  // 9. Trials exhausted (após 5 simulações grátis)
+  // 10. Trials exhausted (após 3 simulações grátis na categoria liberada)
   return {
     canAccess: false,
     isUnlimitedFree: false,
@@ -298,7 +363,7 @@ export function evaluateCategoryAccess(
     remainingTrials: 0,
     usedTrials: used,
     maxTrials,
-    message: 'Concluiu as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, ative a sua inscrição.',
+    message: 'Concluiu as suas 3 simulações gratuitas nesta categoria. Para continuar a testar, por favor insira a sua senha de ativação.',
   };
 }
 
@@ -405,9 +470,21 @@ export function checkHasFullPlatformAccess(userProfile?: UserProfile | null): bo
   if (!userProfile) return false;
   if (userProfile.isBlocked) return false;
 
+  // CRITICAL: Subscriptions that have expired CANNOT have full platform access!
+  if (isUserSubscriptionExpired(userProfile)) {
+    // Only administrators bypass expiration for system management
+    if (userProfile.role === 'admin') {
+      return true;
+    }
+    return false;
+  }
+
+  if (userProfile.role === 'admin') {
+    return true;
+  }
+
   if (
     userProfile.isActivated === true ||
-    userProfile.role === 'admin' ||
     userProfile.isVip === true ||
     userProfile.plan === 'ilimitado' ||
     userProfile.plan === '14d_todas_especialidades' ||
@@ -452,12 +529,19 @@ export function checkIsSpecializationUnlocked(
     return false;
   }
 
-  // 3. Activated user / Admin / VIP / Global plan access (14d all specialties)
+  // 3. CRITICAL: Strict Subscription Expiration Check!
+  // If the user's subscription or code has expired, their previously activated specializations
+  // CANNOT continue to be used. They must acquire and enter a new activation code!
+  if (isUserSubscriptionExpired(userProfile) && userProfile.role !== 'admin') {
+    return false;
+  }
+
+  // 4. Activated user / Admin / VIP / Global plan access (14d all specialties)
   if (checkHasFullPlatformAccess(userProfile)) {
     return true;
   }
 
-  // 4. Activated specializations list
+  // 5. Activated specializations list (only valid when subscription has not expired)
   const activated = userProfile.activatedSpecializations || [];
   if (
     activated.includes('all') ||

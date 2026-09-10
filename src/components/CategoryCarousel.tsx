@@ -104,7 +104,7 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
       return;
     }
     if (!isActivated && !access.canAccess) {
-      alert('Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      alert(access.message || 'Por favor insira a senha de ativação para aceder aos simulados desta categoria.');
       onNavigate('activation');
       return;
     }
@@ -156,8 +156,8 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
                 <div className="flex flex-wrap items-center gap-2">
                   {isNovo && (
                     <span className="bg-amber-500 text-white text-[11px] font-black uppercase px-3 py-1 rounded-full tracking-wider border border-amber-300 shadow-md flex items-center gap-1.5 animate-pulse">
-                      <span className="material-symbols-outlined text-xs">star</span>
-                      <span>Destaque • Novo Concurso</span>
+                      <span className="material-symbols-outlined text-xs">vpn_key</span>
+                      <span>Novo • Requer Senha de Ativação</span>
                     </span>
                   )}
 
@@ -178,7 +178,7 @@ export const CategoryCarousel: React.FC<CategoryCarouselProps> = ({
                   {isLiberado && (
                     <span className="bg-blue-600/90 border border-blue-400/50 text-white text-[11px] font-black px-3 py-1 rounded-full uppercase tracking-wider shadow-md flex items-center gap-1.5">
                       <span className="material-symbols-outlined text-xs">lock_clock</span>
-                      <span>Liberado (5 Simulações Grátis)</span>
+                      <span>Liberado (3 Simulações Grátis)</span>
                     </span>
                   )}
                 </div>

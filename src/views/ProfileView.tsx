@@ -226,11 +226,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <button
             id="profile-activate-spec-btn"
             onClick={() => onNavigate('activation')}
-            className={`px-4 py-2.5 rounded-full text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm ${
+            className={`px-4 py-2.5 rounded-full text-xs font-extrabold flex items-center gap-1.5 cursor-pointer shadow-sm transition-all active:scale-95 ${
               userProfile.isBlocked
                 ? 'bg-red-100 text-red-900 border border-red-300'
                 : isExpired
-                ? 'bg-slate-200 text-slate-800 border border-slate-300'
+                ? 'bg-rose-100 hover:bg-rose-200 text-rose-900 border border-rose-300'
                 : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0)
                 ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                 : 'bg-amber-100 text-amber-900 border border-amber-300'
@@ -243,7 +243,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               {userProfile.isBlocked
                 ? 'Conta Bloqueada'
                 : isExpired
-                ? 'Código Expirado'
+                ? 'Código Expirado • Reativar'
                 : (userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0)
                 ? `${userProfile.activatedSpecializations.length} Especialidade(s) Ativa(s)`
                 : 'Nenhuma Especialidade Ativa'}
@@ -253,33 +253,77 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
         {/* Activated Specializations List */}
         {userProfile.activatedSpecializations && userProfile.activatedSpecializations.length > 0 && (
-          <div className="bg-emerald-50/80 rounded-2xl p-4 border border-emerald-200/80 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-base text-emerald-600">verified</span>
-                Especializações Ativadas (Acesso Válido)
-              </span>
-              {userProfile.expiresAt && (
-                <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
-                  Expira: {userProfile.expiresAt}
+          isExpired ? (
+            <div className="bg-rose-50/90 rounded-2xl p-4 sm:p-5 border border-rose-300/90 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <span className="text-xs font-black text-rose-950 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-rose-600">event_busy</span>
+                  Especializações com Prazo Expirado (Acesso Suspenso)
                 </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2 pt-1">
-              {userProfile.activatedSpecializations.map((specName, idx) => (
-                <span
-                  key={idx}
-                  className="bg-white text-slate-800 border border-emerald-300 font-extrabold text-xs px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1"
+                {userProfile.expiresAt && (
+                  <span className="text-[11px] font-extrabold text-rose-900 bg-white px-2.5 py-0.5 rounded-full border border-rose-300 shadow-2xs flex items-center gap-1 self-start sm:self-auto">
+                    <span className="material-symbols-outlined text-xs text-rose-600">history_toggle_off</span>
+                    Expirou em: {userProfile.expiresAt}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {userProfile.activatedSpecializations.map((specName, idx) => (
+                  <span
+                    key={idx}
+                    className="bg-white/95 text-slate-700 border border-rose-200 font-bold text-xs px-3 py-1.5 rounded-xl shadow-2xs flex items-center gap-1.5"
+                  >
+                    <span className="material-symbols-outlined text-sm text-rose-500">lock</span>
+                    <span className="line-through decoration-rose-400">{specName}</span>
+                    <span className="text-[10px] text-rose-600 font-black uppercase tracking-wider ml-1 bg-rose-100 px-1.5 py-0.5 rounded-md">
+                      Expirado
+                    </span>
+                  </span>
+                ))}
+              </div>
+              <div className="pt-2 border-t border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <p className="text-xs text-rose-900 font-medium leading-relaxed">
+                  O prazo do seu código terminou e o acesso a estas especialidades foi bloqueado. Adquira e ative um novo código para voltar a utilizar os testes e simulados.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onNavigate('activation')}
+                  className="bg-rose-600 hover:bg-rose-700 active:scale-95 text-white font-extrabold text-xs px-4 py-2.5 rounded-xl shadow-sm flex items-center justify-center gap-1.5 cursor-pointer shrink-0 transition-all"
                 >
-                  <span className="material-symbols-outlined text-sm text-emerald-600">school</span>
-                  {specName}
-                </span>
-              ))}
+                  <span className="material-symbols-outlined text-sm">vpn_key</span>
+                  <span>Ativar Novo Código</span>
+                </button>
+              </div>
             </div>
-            <p className="text-[11px] text-emerald-800 font-medium pt-1">
-              Para adicionar mais especializações, use o botão "Ativar Código de Acesso" abaixo.
-            </p>
-          </div>
+          ) : (
+            <div className="bg-emerald-50/80 rounded-2xl p-4 border border-emerald-200/80 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-base text-emerald-600">verified</span>
+                  Especializações Ativadas (Acesso Válido)
+                </span>
+                {userProfile.expiresAt && (
+                  <span className="text-[11px] font-bold text-emerald-700 bg-white px-2.5 py-0.5 rounded-full border border-emerald-200">
+                    Expira: {userProfile.expiresAt}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 pt-1">
+                {userProfile.activatedSpecializations.map((specName, idx) => (
+                  <span
+                    key={idx}
+                    className="bg-white text-slate-800 border border-emerald-300 font-extrabold text-xs px-3 py-1.5 rounded-xl shadow-xs flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-sm text-emerald-600">school</span>
+                    {specName}
+                  </span>
+                ))}
+              </div>
+              <p className="text-[11px] text-emerald-800 font-medium pt-1">
+                Para adicionar mais especializações, use o botão "Ativar Código de Acesso" abaixo.
+              </p>
+            </div>
+          )
         )}
 
         {/* Blocked Notice */}

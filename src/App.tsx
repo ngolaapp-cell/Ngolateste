@@ -49,7 +49,9 @@ import {
   checkHasFullPlatformAccess,
   evaluateCategoryAccess,
   recordCategorySimulation,
+  isCategoryNew,
 } from './utils/accessControl';
+import { isUserSubscriptionExpired } from './utils/dateUtils';
 import { updateAppBadge, sendNativeNotification } from './utils/badgeManager';
 import { AppNavState, pushNavHistory, replaceNavHistory, parseNavFromHash } from './utils/navigationHistory';
 
@@ -640,10 +642,19 @@ export function App() {
       return;
     }
 
-    if (access.canAccess) {
+    const isUserExpired = userProfile ? isUserSubscriptionExpired(userProfile) : false;
+    if (isUserExpired && !access.isUnlimitedFree) {
+      alert(access.message || 'A sua subscrição expirou e o prazo da sua senha terminou. Para voltar a utilizar esta especialidade, por favor adquira e ative um novo código de ativação.');
+      handleNavigate('activation', { category: targetCategory, specialization: spec });
+      return;
+    }
+
+    const isTargetNovo = isCategoryNew(targetCategory);
+
+    if (access.canAccess || isTargetNovo) {
       handleNavigate('tests', { category: targetCategory, specialization: spec });
     } else {
-      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      alert(access.message || 'Completou as suas 3 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição com a senha de ativação.');
       handleNavigate('activation', { category: targetCategory, specialization: spec });
     }
   };
@@ -692,7 +703,7 @@ export function App() {
     }
 
     if (!access.canAccess) {
-      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      alert(access.message || 'Por favor insira a senha de ativação para realizar este simulado.');
       handleNavigate('activation', { category: targetCat || selectedCategory, specialization: selectedSpecialization });
       return;
     }
@@ -755,7 +766,7 @@ export function App() {
     }
 
     if (!access.canAccess) {
-      alert(access.message || 'Completou as suas 5 simulações gratuitas nesta categoria. Para continuar a testar, por favor ative a sua inscrição.');
+      alert(access.message || 'Por favor insira a senha de ativação para realizar este módulo.');
       handleNavigate('activation', { category: matchingCat || selectedCategory, specialization: selectedSpecialization });
       return;
     }
